@@ -7,7 +7,7 @@ final class OllamaClient: Sendable {
     let baseURL: String
     let model: String
 
-    init(baseURL: String = "http://localhost:11434", model: String = "llama3.2") {
+    init(baseURL: String = "http://localhost:11434", model: String = "qwen2.5:3b") {
         self.baseURL = baseURL
         self.model = model
     }

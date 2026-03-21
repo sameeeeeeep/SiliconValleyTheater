@@ -19,66 +19,105 @@ enum EventSummarizer {
     static func summarize(events: [SessionEvent]) -> String {
         var actions: [String] = []
 
-        for event in events.prefix(8) {
+        for event in events.prefix(20) {
             let d = event.detail.lowercased()
-            let s = event.summary
 
             switch event.type {
             case .userMessage:
-                // Extract what the user asked
                 let ask = event.detail
                     .replacingOccurrences(of: "User asked: ", with: "")
                     .replacingOccurrences(of: "User: ", with: "")
                     .prefix(80)
-                actions.append("User asked: \(ask)")
+                actions.append("The developer asked: \(ask)")
 
             case .assistantText:
                 let explain = event.detail
                     .replacingOccurrences(of: "Claude explains: ", with: "")
                     .replacingOccurrences(of: "Claude: ", with: "")
                     .prefix(60)
-                actions.append("Claude said: \(explain)")
+                actions.append("Explanation: \(explain)")
 
             case .toolUse:
                 if d.contains("read") || d.contains("reading") {
-                    let file = extractFileName(from: event.detail)
-                    actions.append("Opened \(file)")
+                    let file = shortFileName(from: event.detail)
+                    actions.append("Opened the \(file) file")
                 } else if d.contains("edit") || d.contains("writing") || d.contains("replacing") {
-                    let file = extractFileName(from: event.detail)
+                    let file = shortFileName(from: event.detail)
                     let change = extractChange(from: event.detail)
-                    actions.append("Changed \(file)\(change.isEmpty ? "" : " — \(change)")")
+                    if !change.isEmpty {
+                        actions.append("Edited \(file) — \(change)")
+                    } else {
+                        actions.append("Made changes to \(file)")
+                    }
                 } else if d.contains("bash") || d.contains("command") || d.contains("running") {
-                    let cmd = extractCommand(from: event.detail)
-                    actions.append("Ran command: \(cmd)")
+                    let cmd = humanizeCommand(from: event.detail)
+                    actions.append(cmd)
                 } else if d.contains("search") || d.contains("grep") || d.contains("glob") {
-                    actions.append("Searched the codebase")
+                    actions.append("Searched through the codebase")
                 } else {
-                    let tool = s.prefix(50)
-                    actions.append("Used tool: \(tool)")
+                    // Generic tool use — describe the action, not the tool name
+                    actions.append("Performed an operation on the code")
                 }
 
             case .toolResult:
                 if d.contains("test") && d.contains("pass") {
                     let count = extractNumber(from: event.detail, near: "test")
-                    actions.append("Tests passed\(count > 0 ? " (\(count) tests)" : "")")
+                    actions.append("All tests passed\(count > 0 ? " — \(count) total" : "")")
                 } else if d.contains("error") || d.contains("fail") {
-                    let errMsg = event.detail.prefix(60)
-                    actions.append("Got an error: \(errMsg)")
+                    // Extract just the meaningful error, not the full path
+                    let errMsg = cleanErrorMessage(event.detail)
+                    actions.append("Hit an error: \(errMsg)")
                 } else if d.contains("success") || d.contains("complete") {
-                    actions.append("Command succeeded")
+                    actions.append("That worked successfully")
                 } else {
-                    let result = event.detail.prefix(50)
-                    actions.append("Result: \(result)")
+                    break // Skip generic results
                 }
 
             case .thinking, .progress, .unknown:
-                break // Skip non-actionable events
+                break
             }
         }
 
-        // Deduplicate and limit
-        let unique = actions.prefix(5)
+        let unique = actions.prefix(8)
         return unique.joined(separator: ". ")
+    }
+
+    /// Strip full paths down to just the filename (e.g. "auth.swift" not "/Users/foo/bar/auth.swift")
+    private static func shortFileName(from detail: String) -> String {
+        let raw = extractFileName(from: detail)
+        // Strip path — keep only filename
+        if raw.contains("/") {
+            return String(raw.split(separator: "/").last ?? Substring(raw))
+        }
+        return raw
+    }
+
+    /// Convert raw bash commands into human-readable descriptions
+    private static func humanizeCommand(from detail: String) -> String {
+        let cmd = extractCommand(from: detail).lowercased()
+        if cmd.contains("npm test") || cmd.contains("swift test") || cmd.contains("pytest") || cmd.contains("jest") {
+            return "Ran the test suite"
+        } else if cmd.contains("npm install") || cmd.contains("pip install") || cmd.contains("brew install") {
+            return "Installed some dependencies"
+        } else if cmd.contains("npm run build") || cmd.contains("make build") || cmd.contains("swift build") {
+            return "Built the project"
+        } else if cmd.contains("git ") {
+            return "Did some version control work"
+        } else if cmd.contains("npm run dev") || cmd.contains("npm start") {
+            return "Started the development server"
+        } else {
+            return "Ran a command"
+        }
+    }
+
+    /// Clean error messages — strip paths, keep the meaningful part
+    private static func cleanErrorMessage(_ detail: String) -> String {
+        var msg = detail
+        // Remove file paths
+        let pathPattern = try? NSRegularExpression(pattern: "/[\\w/.-]+/", options: [])
+        msg = pathPattern?.stringByReplacingMatches(in: msg, range: NSRange(msg.startIndex..., in: msg), withTemplate: "") ?? msg
+        // Trim to reasonable length
+        return String(msg.prefix(50))
     }
 
     // MARK: - Extraction Helpers
@@ -150,19 +189,57 @@ enum EventSummarizer {
 /// Takes batches of SessionEvents, summarizes them (no LLM), then generates
 /// character dialogue via a lightweight LLM prompt.
 final class DialogueGenerator: Sendable {
-    private let client: any LLMClient
+    let client: any LLMClient
 
     init(client: any LLMClient) {
         self.client = client
     }
 
-    func generate(events: [SessionEvent], config: TheaterConfig) async throws -> [DialogueLine] {
+    func generate(events: [SessionEvent], config: TheaterConfig, activeTheme: CharacterTheme? = nil) async throws -> [DialogueLine] {
         guard !events.isEmpty else { return [] }
 
-        let prompt = buildPrompt(events: events, config: config)
+        let prompt = buildPrompt(events: events, config: config, theme: activeTheme)
         debugLog("[Generator] Prompt length: \(prompt.count) chars")
-        let response = try await client.generate(prompt: prompt, maxTokens: 300)
-        debugLog("[Generator] Raw response: \(response.prefix(300))")
+        let response = try await client.generate(prompt: prompt, maxTokens: 350)
+        debugLog("[Generator] Raw response: \(response.prefix(400))")
+        let names = config.characters.map(\.name)
+        return DialogueParser.parse(response, names: names)
+    }
+
+    /// Generate filler banter (no events needed) — used during idle time.
+    /// Returns dialogue lines that can be voice-cached for instant playback.
+    func generateFiller(config: TheaterConfig, activeTheme: CharacterTheme? = nil) async throws -> [DialogueLine] {
+        let c0 = config.characters[0]
+        let c1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
+
+        let topics = [
+            "They riff about a funny bug they once encountered — something absurd that took hours to find.",
+            "They argue about tabs vs spaces, or which programming language is superior.",
+            "They reminisce about a disastrous deploy that went wrong in a hilarious way.",
+            "They debate whether their current project is genius or a complete waste of time.",
+            "One tells a story about the worst code review they ever received.",
+            "They compete over who wrote the worst code in the codebase.",
+        ]
+        let topic = topics.randomElement()!
+
+        let example = activeTheme?.fewShotExample ?? ""
+
+        let prompt = """
+        Write exactly 6 lines of funny banter between \(c0.name) and \(c1.name). No real events — just two characters killing time.
+        Topic: \(topic)
+        Stay in character. Under 25 words each line. Character name and colon to start each line.
+
+        \(example)
+
+        \(c0.name):
+        \(c1.name):
+        \(c0.name):
+        \(c1.name):
+        \(c0.name):
+        \(c1.name):
+        """
+
+        let response = try await client.generate(prompt: prompt, maxTokens: 400)
         let names = config.characters.map(\.name)
         return DialogueParser.parse(response, names: names)
     }
@@ -171,38 +248,38 @@ final class DialogueGenerator: Sendable {
         await client.isAvailable()
     }
 
-    // MARK: - Prompt Building (Optimized for speed + quality)
+    // MARK: - Prompt Building (Few-shot, optimized for speed + quality)
 
-    private func buildPrompt(events: [SessionEvent], config: TheaterConfig) -> String {
-        let char0 = config.characters[0]
-        let char1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
+    private func buildPrompt(events: [SessionEvent], config: TheaterConfig, theme: CharacterTheme? = nil) -> String {
+        let c0 = config.characters[0]
+        let c1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
 
         // Pre-digest events into a short summary (zero latency)
         let summary = EventSummarizer.summarize(events: events)
 
-        // Compact but structured prompt — forces character names and balances info + humor
+        // Use theme-specific few-shot example if available
+        let example = theme?.fewShotExample ?? """
+        EXAMPLE (event: Changed auth.swift — replacing cookies with JWT. Tests passed 12):
+        \(c0.name): We just swapped the locks from physical keys to digital key cards. Much harder to pick.
+        \(c1.name): Twelve tests passed. Twelve doors we didn't accidentally brick.
+        \(c0.name): Session cookies were like hiding your house key under the doormat. JWT is a real deadbolt.
+        \(c1.name): Now explain that to the product manager without saying the word token.
+        \(c0.name): It expires on its own, no database needed, and you can't forge it without the secret key.
+        \(c1.name): So we replaced a sticky note on the fridge with an actual security system. About time.
+        """
+
         return """
-        You are writing a script. Only output the 4 lines below, nothing else.
+        Write 6 lines. \(c0.name) and \(c1.name) react to what just happened. Explain what it means simply. Stay in character. Under 25 words each. Never mention Claude or file paths.
 
-        CHARACTERS:
-        \(char0.name) — \(char0.speechStyle.prefix(80))
-        \(char1.name) — \(char1.speechStyle.prefix(80))
+        \(example)
 
-        WHAT JUST HAPPENED: \(summary)
-
-        RULES:
-        - Line 1: \(char0.name) explains what just happened in SIMPLE terms anyone can understand
-        - Line 2: \(char1.name) reacts with a joke or analogy
-        - Line 3: \(char0.name) adds technical detail but makes it fun
-        - Line 4: \(char1.name) wraps up with a punchline
-        - NEVER say "Claude" — they are \(char0.name) and \(char1.name), talking as if THEY did the work
-        - Each line MUST start with the character name followed by a colon
-        - Keep each line under 25 words
-
-        \(char0.name):
-        \(char1.name):
-        \(char0.name):
-        \(char1.name):
+        NOW (\(summary)):
+        \(c0.name):
+        \(c1.name):
+        \(c0.name):
+        \(c1.name):
+        \(c0.name):
+        \(c1.name):
         """
     }
 }

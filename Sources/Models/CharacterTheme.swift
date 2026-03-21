@@ -7,6 +7,7 @@ struct CharacterTheme: Codable, Identifiable, Hashable {
     var name: String
     var description: String
     var show: String
+    var fewShotExample: String
     var characters: [CharacterConfig]
     var systemPrompt: String
     var isBuiltIn: Bool
@@ -54,6 +55,15 @@ enum BuiltInThemes {
         name: "Gilfoyle & Dinesh",
         description: "Two rival programmers roasting each other while tackling the same codebase",
         show: "Silicon Valley",
+        fewShotExample: """
+        EXAMPLE (event: Changed auth.swift — replacing cookies with JWT. Tests passed 12):
+        Gilfoyle: We ripped out session cookies and replaced them with JWT. Like upgrading from a screen door to a vault.
+        Dinesh: All twelve tests passed. I'm not saying I'm a genius, but Big Head couldn't have done that.
+        Gilfoyle: Big Head couldn't have opened the file. The old auth was so bad Erlich could have hacked it drunk.
+        Dinesh: Okay that's fair. But I still think my implementation of the token refresh is elegant.
+        Gilfoyle: Elegant. You keep using that word. It doesn't mean what you think it means, Dinesh.
+        Dinesh: You know what, at least Richard isn't here to tell us to pivot the entire auth system mid-sprint.
+        """,
         characters: [
             CharacterConfig(
                 id: "gilfoyle",
@@ -128,6 +138,15 @@ enum BuiltInThemes {
         name: "Rick & Morty",
         description: "A genius scientist and his anxious grandson build something together",
         show: "Rick and Morty",
+        fewShotExample: """
+        EXAMPLE (event: Opened database.py. Changed database.py — adding connection pooling. Command succeeded):
+        Rick: Listen Morty, we just added connection pooling. Instead of opening a new door every time, we keep a bunch of doors open.
+        Morty: Oh geez Rick, that sounds like a lot of doors. W-w-what if they all open at once?
+        Rick: That's the point Morty. In dimension C-137 we solved this with quantum door handles but this works too.
+        Morty: Okay but like, in simple terms, we're just reusing database connections instead of making new ones right?
+        Rick: Wubba lubba dub dub, the kid actually gets it. Don't let it go to your head Morty.
+        Morty: I-I-I'm not gonna lie Rick, I understood something and now I'm scared.
+        """,
         characters: [
             CharacterConfig(
                 id: "rick",
@@ -193,6 +212,15 @@ enum BuiltInThemes {
         name: "Sherlock & Watson",
         description: "A detective and his partner deduce their way through a codebase",
         show: "Sherlock",
+        fewShotExample: """
+        EXAMPLE (event: Searched the codebase. Opened utils.js. Changed utils.js — replacing deprecated API call):
+        Sherlock: Obvious. The deprecated API call in utils.js was the murder weapon. I found it in three seconds.
+        Watson: Right. And for those of us who aren't geniuses, what does deprecated mean exactly?
+        Sherlock: It means the function is dying, Watson. The creators have abandoned it. We're replacing it before it expires.
+        Watson: So in plain English we updated an old function that was about to stop working. Like replacing expired milk.
+        Sherlock: A crude analogy but serviceable. The new API is faster and won't throw errors at 2 AM like its predecessor.
+        Watson: Brilliant. I'm noting that down. One mystery solved, approximately four hundred to go.
+        """,
         characters: [
             CharacterConfig(
                 id: "sherlock",
@@ -251,6 +279,15 @@ enum BuiltInThemes {
         name: "Chandler & Joey",
         description: "Sarcasm meets lovable confusion as they attempt to code",
         show: "Friends",
+        fewShotExample: """
+        EXAMPLE (event: Changed styles.css — adding responsive layout. Ran tests. Tests passed 5):
+        Chandler: Could this CSS file BE any more complicated? We just made the website resize on phones.
+        Joey: So the website like, changes shape? Like a transformer? That's COOL.
+        Chandler: It's called responsive design Joey. The layout adjusts depending on screen size. Like how you adjust your personality depending on who's buying dinner.
+        Joey: Hey that's not fair. I'm always charming. So basically the website looks good on a phone now?
+        Chandler: Five tests passed. Which is five more than my dating life this month, so we're ahead.
+        Joey: How YOU doin, little website? Looking good on all devices now.
+        """,
         characters: [
             CharacterConfig(
                 id: "chandler",
@@ -307,6 +344,15 @@ enum BuiltInThemes {
         name: "Professor & Bug",
         description: "A CS professor and eager student learn by doing",
         show: "Original",
+        fewShotExample: """
+        EXAMPLE (event: Opened main.py. Changed main.py — adding input validation. Tests passed 3):
+        Professor Pixel: We just added input validation. Think of it like a bouncer at a club checking IDs at the door.
+        Bug: Wait so before this, anyone could just walk in and break stuff?
+        Professor Pixel: Exactly! Without validation, bad data gets in and causes chaos. Like letting a raccoon into a library.
+        Bug: Oh! So now we check if the data makes sense BEFORE we use it. That's actually smart.
+        Professor Pixel: Three tests passed, which means our bouncer is working. No raccoons in the library today.
+        Bug: I love that analogy. Raccoons in a library. I'm going to remember that forever.
+        """,
         characters: [
             CharacterConfig(
                 id: "professor",
@@ -342,6 +388,15 @@ enum BuiltInThemes {
         name: "Dwight & Jim",
         description: "An intense know-it-all and a laid-back prankster code together",
         show: "The Office",
+        fewShotExample: """
+        EXAMPLE (event: Changed config.json — updating environment variables. Ran tests. Got an error: missing API key):
+        Dwight: FALSE. You cannot just change environment variables without informing the assistant TO the regional developer.
+        Jim: So we updated the settings file and then it broke because we forgot to add the API key. Classic.
+        Dwight: On my beet farm, we never forget keys. Every barn has exactly one key and it never changes. MICHAEL would understand this.
+        Jim: Dwight, it's a config file. We just need to add the missing key and it'll work.
+        Dwight: Question. What kind of developer forgets an API key? Answer. The same kind who uses spaces instead of tabs.
+        Jim: Looks at camera. So that's happening. Anyway the fix takes about ten seconds.
+        """,
         characters: [
             CharacterConfig(
                 id: "dwight",
@@ -398,6 +453,15 @@ enum BuiltInThemes {
         name: "Jesse & Walter",
         description: "A chemistry teacher and his chaotic student treat code like a cook",
         show: "Breaking Bad",
+        fewShotExample: """
+        EXAMPLE (event: Changed app.py — refactoring the data pipeline. Ran tests. Tests passed 15):
+        Walter: The pipeline must be pure Jesse. Ninety nine point one percent is not good enough. We refactored everything.
+        Jesse: Yo Mr. White, all fifteen tests passed. That's like, science right?
+        Walter: A data pipeline is like a chemical process. Each step must flow into the next with zero contamination.
+        Jesse: So we basically cleaned the whole lab and now the product comes out perfect every time.
+        Walter: I am the one who refactors. This codebase will be pure or it will be nothing.
+        Jesse: Yeah Mr. White! Yeah science! Fifteen out of fifteen, that's a hundred percent pure code right there.
+        """,
         characters: [
             CharacterConfig(
                 id: "walter",
@@ -455,6 +519,15 @@ enum BuiltInThemes {
         name: "Tony & JARVIS",
         description: "A genius inventor and his AI assistant build like they're making Iron Man",
         show: "MCU / Iron Man",
+        fewShotExample: """
+        EXAMPLE (event: Changed api.swift — adding rate limiting. Ran tests. Tests passed 8):
+        Tony: Just added rate limiting to the API. Can't have every script kiddie hammering our servers like it's a piñata.
+        JARVIS: Indeed sir. Eight tests confirmed. I calculate a ninety four percent reduction in unauthorized request volume.
+        Tony: Rate limiting is like a velvet rope at a club. You can come in but not all at once or you're getting bounced.
+        JARVIS: Sir, if I may, the previous configuration allowed approximately twelve thousand requests per second with no throttle.
+        Tony: Twelve thousand. That's more traffic than the Stark Expo. JARVIS, run the diagnostics one more time.
+        JARVIS: As you wish sir. All systems nominal. Shall I deploy to production or would you like to overthink it first?
+        """,
         characters: [
             CharacterConfig(
                 id: "tony",

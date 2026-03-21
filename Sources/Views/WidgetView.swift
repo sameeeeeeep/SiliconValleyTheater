@@ -2,250 +2,465 @@ import SwiftUI
 
 // MARK: - WidgetView
 
-/// Compact floating widget — shows current speaker, dialogue, status, and mini controls.
+/// Multi-room floating widget — Zoom meeting rooms style.
+/// Left sidebar shows all active sessions as "rooms".
+/// Right side shows the selected room's video call view.
 struct WidgetView: View {
     @Environment(TheaterEngine.self) private var engine
     @State private var isHovered = false
+    @State private var showRooms = true
 
     var body: some View {
         VStack(spacing: 0) {
-            // Status bar (always visible)
-            statusBar
+            // Top bar — meeting info + room toggle
+            topBar
 
-            // Current line or idle
-            if let line = engine.currentLine {
-                activeLine(line)
-            } else {
-                idleState
+            // Main content: room list + active room view
+            HStack(spacing: 0) {
+                // Room list sidebar (collapsible)
+                if showRooms {
+                    roomSidebar
+                        .frame(width: 160)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
+                // Active room — video tiles + subtitle
+                VStack(spacing: 0) {
+                    videoTiles
+                        .frame(height: 130)
+
+                    subtitleArea
+                        .frame(height: 52)
+                }
             }
 
-            // Last 2 transcript lines (compact)
-            if !engine.dialogueHistory.isEmpty {
-                recentLines
-            }
-
-            // Controls on hover
+            // Bottom toolbar — Zoom-style controls (always show on hover)
             if isHovered {
-                miniControls
-                    .transition(.opacity)
+                bottomToolbar
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .frame(width: 340)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .frame(width: showRooms ? 500 : 340)
+        .background(Color(hex: 0x1a1a1a))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 8)
+        .shadow(color: .black.opacity(0.6), radius: 24, x: 0, y: 10)
         .onHover { isHovered = $0 }
         .focusEffectDisabled()
         .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(.easeInOut(duration: 0.2), value: showRooms)
         .animation(.spring(response: 0.3), value: engine.currentLine?.id)
     }
 
-    // MARK: - Status Bar
+    // MARK: - Top Bar
 
-    private var statusBar: some View {
+    private var topBar: some View {
         HStack(spacing: 6) {
-            // Phase dot
-            Circle()
-                .fill(statusColor)
-                .frame(width: 5, height: 5)
-                .shadow(color: statusColor.opacity(0.6), radius: 2)
+            // Green "secure" lock icon like Zoom
+            Image(systemName: "lock.fill")
+                .font(.system(size: 7))
+                .foregroundStyle(.green.opacity(0.7))
 
-            Text(engine.phase.rawValue)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.white.opacity(0.4))
+            Text(activeThemeName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.7))
 
             Spacer()
 
-            // Session name
-            if let path = engine.watcher.currentSessionFile {
-                let project = URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent
-                    .replacingOccurrences(of: "-Users-sameeprehlan-", with: "")
-                    .replacingOccurrences(of: "-", with: "/")
-                    .suffix(20)
-                Text(project)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.25))
+            // Recording indicator
+            if engine.phase == .playing || engine.phase == .synthesizing {
+                HStack(spacing: 3) {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 5, height: 5)
+                        .modifier(PulseModifier())
+                    Text("LIVE")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.red.opacity(0.8))
+                }
             }
 
-            // Event count
-            if engine.eventLog.count > 0 {
-                Text("\(engine.eventLog.count)")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.2))
+            // Room list toggle
+            Button {
+                engine.watcher.refreshSessions()
+                showRooms.toggle()
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "rectangle.split.3x1.fill")
+                        .font(.system(size: 8))
+                    let count = engine.watcher.availableSessions.prefix(10).count
+                    Text("\(count) rooms")
+                        .font(.system(size: 8, weight: .bold))
+                    Image(systemName: showRooms ? "chevron.left" : "chevron.right")
+                        .font(.system(size: 6, weight: .bold))
+                }
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(.white.opacity(0.08)))
             }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-    }
-
-    // MARK: - Active Line
-
-    private func activeLine(_ line: DialogueLine) -> some View {
-        let idx = min(line.characterIndex, engine.config.characters.count - 1)
-        let char = engine.config.characters[idx]
-        let accent: Color = line.characterIndex == 0 ? .cyan : .green
-
-        return HStack(spacing: 10) {
-            // Talking indicator
-            ZStack {
-                Circle()
-                    .fill(accent.opacity(0.15))
-                Text(String(char.name.prefix(1)))
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(accent)
-            }
-            .frame(width: 32, height: 32)
-            .overlay(
-                Circle()
-                    .strokeBorder(accent.opacity(0.4), lineWidth: 1.5)
-            )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(char.name)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(accent)
-
-                Text(line.text)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .background(Color(hex: 0x232323))
     }
 
-    // MARK: - Recent Lines
+    // MARK: - Room Sidebar
 
-    private var recentLines: some View {
-        let recent = engine.dialogueHistory.suffix(2)
-        return VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(recent)) { line in
-                let idx = min(line.characterIndex, engine.config.characters.count - 1)
-                let name = engine.config.characters[idx].name
-                let accent: Color = line.characterIndex == 0 ? .cyan : .green
-                let isCurrent = line.id == engine.currentLine?.id
+    private var roomSidebar: some View {
+        let sessions = Array(engine.watcher.availableSessions.prefix(12))
+        let themes = ThemeStore.shared.allThemes()
 
-                if !isCurrent {
-                    HStack(spacing: 4) {
-                        Text(name)
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(accent.opacity(0.5))
-                        Text(line.text)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.white.opacity(0.3))
-                            .lineLimit(1)
+        return VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("ROOMS")
+                    .font(.system(size: 8, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .tracking(1.2)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+
+            Divider().background(Color.white.opacity(0.08))
+
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(sessions) { session in
+                        roomRow(session: session, themes: themes)
+                    }
+
+                    if sessions.isEmpty {
+                        VStack(spacing: 6) {
+                            Image(systemName: "person.slash.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white.opacity(0.15))
+                            Text("No active sessions")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.25))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
                     }
                 }
             }
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
-    }
+            .frame(maxHeight: .infinity)
 
-    // MARK: - Idle State
+            Divider().background(Color.white.opacity(0.08))
 
-    private var idleState: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "waveform")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.2))
-
-            Text(activeThemeName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.5))
-
-            Spacer()
-
-            if engine.error != nil {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+            // Auto-follow toggle
+            if engine.watcher.pinnedSession != nil {
+                Button {
+                    engine.watcher.pinSession(nil)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "autostartstop")
+                            .font(.system(size: 8))
+                        Text("Auto-follow")
+                            .font(.system(size: 8, weight: .medium))
+                        Spacer()
+                    }
+                    .foregroundStyle(.blue.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .background(Color(hex: 0x161616))
     }
 
-    // MARK: - Mini Controls
+    private func roomRow(session: SessionWatcher.SessionInfo, themes: [CharacterTheme]) -> some View {
+        let isCurrent = engine.watcher.currentSessionFile == session.path
+        let themeId = engine.config.themeId(forSession: session.path)
+        let theme = themes.first(where: { $0.id == themeId })
+        let isActive = isSessionActive(session)
+        let charNames = theme?.characters.map(\.name).joined(separator: " & ") ?? "—"
 
-    private var miniControls: some View {
-        HStack(spacing: 12) {
-            // Play/Stop
-            Button {
+        return Button {
+            engine.selectRoom(session.path)
+        } label: {
+            HStack(spacing: 8) {
+                // Active indicator
+                Circle()
+                    .fill(isCurrent ? Color.green : (isActive ? Color.blue.opacity(0.5) : Color.gray.opacity(0.2)))
+                    .frame(width: 6, height: 6)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    // Project name
+                    Text(session.displayName)
+                        .font(.system(size: 9, weight: isCurrent ? .bold : .medium))
+                        .foregroundStyle(isCurrent ? .white : .white.opacity(0.55))
+                        .lineLimit(1)
+
+                    // Characters (tap to cycle theme)
+                    Button {
+                        engine.cycleRoomTheme(forSession: session.path)
+                    } label: {
+                        Text(charNames)
+                            .font(.system(size: 7, weight: .medium))
+                            .foregroundStyle(isCurrent ? .cyan.opacity(0.8) : .white.opacity(0.3))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(isCurrent ? Color.white.opacity(0.06) : .clear)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func isSessionActive(_ session: SessionWatcher.SessionInfo) -> Bool {
+        // Consider a session active if it was modified in the last 5 minutes
+        session.lastModified.timeIntervalSinceNow > -300
+    }
+
+    // MARK: - Video Tiles
+
+    private var videoTiles: some View {
+        HStack(spacing: 2) {
+            if engine.config.characters.count >= 2 {
+                characterTile(
+                    char: engine.config.characters[0],
+                    index: 0,
+                    isSpeaking: engine.currentSpeaker == 0
+                )
+                characterTile(
+                    char: engine.config.characters[1],
+                    index: 1,
+                    isSpeaking: engine.currentSpeaker == 1
+                )
+            }
+        }
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
+    }
+
+    private func characterTile(char: CharacterConfig, index: Int, isSpeaking: Bool) -> some View {
+        let accent: Color = index == 0 ? .cyan : .green
+
+        return ZStack(alignment: .bottom) {
+            // Background gradient
+            if let path = char.avatarPath, let image = NSImage(contentsOfFile: path) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                LinearGradient(
+                    colors: index == 0
+                        ? [Color(hex: 0x0d1b2a), Color(hex: 0x1b2838)]
+                        : [Color(hex: 0x0a1f14), Color(hex: 0x162d20)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .overlay(
+                    Text(String(char.name.prefix(1)))
+                        .font(.system(size: 48, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.06))
+                )
+            }
+
+            // Bottom bar — name + mic indicator
+            HStack(spacing: 4) {
+                // Mic icon
+                if isSpeaking {
+                    HStack(spacing: 1.5) {
+                        ForEach(0..<3, id: \.self) { i in
+                            SoundBar(index: i, isActive: true, color: .white)
+                        }
+                    }
+                    .frame(width: 12, height: 10)
+                } else {
+                    Image(systemName: "mic.slash.fill")
+                        .font(.system(size: 7))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+
+                Text(char.name)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.7), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(
+                    isSpeaking ? accent.opacity(0.6) : .clear,
+                    lineWidth: isSpeaking ? 1.5 : 0
+                )
+        )
+    }
+
+    // MARK: - Subtitle Area
+
+    private var subtitleArea: some View {
+        ZStack {
+            Color(hex: 0x111111)
+
+            if let line = engine.currentLine {
+                let idx = min(line.characterIndex, engine.config.characters.count - 1)
+                let char = engine.config.characters[idx]
+                let accent: Color = line.characterIndex == 0 ? .cyan : .green
+
+                VStack(spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(char.name)
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(accent)
+                        Spacer()
+                    }
+
+                    HStack {
+                        Text(line.text)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            } else if let err = engine.error {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.orange)
+                    Text(err.prefix(60))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.15))
+                    Text(engine.phase == .idle ? "Ready" : engine.phase.rawValue)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.3))
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+            }
+        }
+    }
+
+    // MARK: - Bottom Toolbar (Zoom-style)
+
+    private var bottomToolbar: some View {
+        HStack(spacing: 0) {
+            // Mute / Unmute
+            toolbarButton(
+                icon: "mic.fill",
+                label: engine.phase == .idle ? "Unmute" : "Mute",
+                accent: engine.phase != .idle ? .white : .red
+            ) {
                 if engine.phase == .idle { engine.start() } else { engine.stop() }
-            } label: {
-                Image(systemName: engine.phase == .idle ? "play.fill" : "pause.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(.white.opacity(0.1)))
             }
-            .buttonStyle(.plain)
 
             // Skip
-            Button { engine.skipCurrentLine() } label: {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(engine.currentLine == nil ? 0.2 : 0.6))
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(.white.opacity(0.06)))
+            toolbarButton(icon: "forward.fill", label: "Skip", accent: .white) {
+                engine.skipCurrentLine()
             }
-            .buttonStyle(.plain)
-            .disabled(engine.currentLine == nil)
+            .opacity(engine.currentLine == nil ? 0.3 : 1.0)
 
             // Refresh
-            Button {
+            toolbarButton(icon: "arrow.clockwise", label: "Restart", accent: .white) {
                 engine.stop()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { engine.start() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(.white.opacity(0.06)))
             }
-            .buttonStyle(.plain)
+
+            // Demo
+            toolbarButton(icon: "play.rectangle.fill", label: "Demo", accent: .white) {
+                engine.demo()
+            }
 
             Spacer()
 
-            // Demo
-            Button { engine.demo() } label: {
-                Text("Demo")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(.white.opacity(0.06)))
+            // Leave (End Call style — red)
+            Button {
+                engine.stop()
+            } label: {
+                Text("End")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(.red))
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(Color(hex: 0x1e1e1e))
+    }
+
+    private func toolbarButton(icon: String, label: String, accent: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(accent.opacity(0.8))
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(.white.opacity(0.1)))
+
+                Text(label)
+                    .font(.system(size: 7, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(width: 50)
     }
 
     // MARK: - Helpers
 
-    private var statusColor: Color {
-        switch engine.phase {
-        case .idle: .gray
-        case .watching: .green
-        case .buffering: .yellow
-        case .generating: .blue
-        case .synthesizing: .purple
-        case .playing: .cyan
-        }
-    }
-
     private var activeThemeName: String {
         ThemeStore.shared.allThemes()
             .first { $0.id == engine.config.activeThemeId }?.name ?? "Theater"
+    }
+}
+
+// MARK: - Pulse Modifier
+
+struct PulseModifier: ViewModifier {
+    @State private var opacity: Double = 1.0
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    opacity = 0.3
+                }
+            }
     }
 }

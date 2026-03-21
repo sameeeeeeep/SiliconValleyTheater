@@ -6,16 +6,7 @@ struct SiliconValleyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // Main window (hidden by default, open from menu bar)
-        Window("SiliconValley Theater", id: "main") {
-            ContentView()
-                .environment(engine)
-                .frame(minWidth: 800, minHeight: 600)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1000, height: 720)
-
-        // Floating widget window — compact, always-on-top panel (default)
+        // Widget is the default window — compact floating panel
         WindowGroup {
             WidgetView()
                 .environment(engine)
@@ -29,8 +20,17 @@ struct SiliconValleyApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
-        .defaultSize(width: 340, height: 200)
+        .defaultSize(width: 520, height: 280)
         .defaultPosition(.topTrailing)
+
+        // Main window — full video call view (open from menu bar)
+        Window("SiliconValley Theater", id: "main") {
+            ContentView()
+                .environment(engine)
+                .frame(minWidth: 800, minHeight: 600)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1000, height: 720)
 
         // Settings
         Settings {
@@ -62,7 +62,7 @@ struct FloatingPanelConfigurator: NSViewRepresentable {
                 window.hasShadow = true
                 window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
                 // Compact size for widget
-                window.setContentSize(NSSize(width: 360, height: 240))
+                window.setContentSize(NSSize(width: 520, height: 280))
             }
         }
         return view
