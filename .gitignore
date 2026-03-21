@@ -1,0 +1,58 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Xcode
+build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.moved-aside
+*.pbxuser
+*.perspectivev3
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+*.egg
+
+# Model weights — never commit these
+*.safetensors
+*.gguf
+*.bin
+*.onnx
+
+# Voice & TTS caches
+phrase_cache/
+TTSSidecar/voices/*.wav
+TTSSidecar/pocket_voices/*.safetensors
+TTSSidecar/*.safetensors
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment & secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Claude Code
+.claude/

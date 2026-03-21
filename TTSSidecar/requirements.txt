@@ -1,0 +1,6 @@
+qwen-tts
+torch
+soundfile
+numpy
+fastapi
+uvicorn[standard]
