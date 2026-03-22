@@ -5,17 +5,31 @@ import SwiftUI
 /// Left-aligned chat transcript — all messages flow top to bottom.
 struct TranscriptView: View {
     @Environment(TheaterEngine.self) private var engine
+    @State private var isUserScrolling = false
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(engine.dialogueHistory) { line in
-                        chatLine(line)
-                            .id(line.id)
+                if engine.dialogueHistory.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "text.bubble")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.white.opacity(0.15))
+                        Text("Transcript will appear here")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.25))
                     }
+                    .frame(maxWidth: .infinity, minHeight: 80)
+                    .padding(.vertical, 20)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(engine.dialogueHistory) { line in
+                            chatLine(line)
+                                .id(line.id)
+                        }
+                    }
+                    .padding(10)
                 }
-                .padding(10)
             }
             .onChange(of: engine.dialogueHistory.count) { _, _ in
                 if let last = engine.dialogueHistory.last {
@@ -33,16 +47,24 @@ struct TranscriptView: View {
     }
 
     private func chatLine(_ line: DialogueLine) -> some View {
-        let idx = min(line.characterIndex, engine.config.characters.count - 1)
-        let name = engine.config.characters[idx].name
-        let accent: Color = line.characterIndex == 0 ? .cyan : .green
+        let chars = engine.config.characters
+        let name: String
+        let accent: Color
+        if chars.isEmpty {
+            name = "Speaker"
+            accent = .cyan
+        } else {
+            let idx = min(line.characterIndex, chars.count - 1)
+            name = chars[idx].name
+            accent = line.characterIndex == 0 ? .cyan : .green
+        }
         let isCurrent = engine.currentLine?.id == line.id
 
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(name)
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(accent)
-                .frame(width: 60, alignment: .trailing)
+                .frame(width: 70, alignment: .trailing)
 
             Text(line.text)
                 .font(.system(size: 11))

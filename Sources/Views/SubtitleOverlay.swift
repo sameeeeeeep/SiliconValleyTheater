@@ -10,6 +10,7 @@ struct SubtitleOverlay: View {
     @State private var appeared = false
 
     private var name: String {
+        guard !characters.isEmpty else { return "Speaker" }
         let idx = min(line.characterIndex, characters.count - 1)
         return characters[idx].name
     }
@@ -32,7 +33,7 @@ struct SubtitleOverlay: View {
             Text(line.text)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(2)
+                .lineLimit(3)
 
             Spacer(minLength: 0)
         }

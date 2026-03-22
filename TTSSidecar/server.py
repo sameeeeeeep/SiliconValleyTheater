@@ -59,9 +59,11 @@ VOICES_DIR = Path(__file__).parent.parent / "Resources" / "Voices"
 
 # Pocket TTS: map character → (ref_wav_filename, builtin_fallback)
 POCKET_VOICE_MAP = {
-    "gilfoyle": ("David.wav",  "marius"),
-    "dinesh":   ("Moira.wav",  "alba"),
-    "rick":     (None,         "jean"),
+    "gilfoyle":   ("David.wav",  "marius"),
+    "dinesh":     ("Moira.wav",  "alba"),
+    "david-rose": ("David.wav",  "marius"),
+    "moira-rose": ("Moira.wav",  "alba"),
+    "rick":       (None,         "jean"),
     "morty":    (None,         "cosette"),
     "sherlock": (None,         "javert"),
     "watson":   (None,         "fantine"),
@@ -171,6 +173,22 @@ def _pocket_init():
     print(f"[TTS] Warm-up done in {time.time() - t0:.1f}s")
 
 
+def _find_voice_wav(filename: str) -> Optional[Path]:
+    """Search for a voice WAV file in Resources/Voices/ and its theme subdirectories."""
+    # Try top-level first
+    top = VOICES_DIR / filename
+    if top.exists():
+        return top
+    # Search theme subdirectories
+    if VOICES_DIR.exists():
+        for subdir in VOICES_DIR.iterdir():
+            if subdir.is_dir() and not subdir.name.startswith('.'):
+                candidate = subdir / filename
+                if candidate.exists():
+                    return candidate
+    return None
+
+
 def _pocket_load_voices():
     """Load or prepare voice states for all characters."""
     global _pocket_voices
@@ -190,10 +208,10 @@ def _pocket_load_voices():
             except Exception as e:
                 print(f"[TTS] Failed to load exported {voice_id}: {e}")
 
-        # 2. Try cloning from reference WAV
+        # 2. Try cloning from reference WAV (search top-level + theme subdirs)
         if ref_wav:
-            wav_path = VOICES_DIR / ref_wav
-            if wav_path.exists():
+            wav_path = _find_voice_wav(ref_wav)
+            if wav_path and wav_path.exists():
                 try:
                     print(f"[TTS] Cloning voice: {voice_id} from {ref_wav}...")
                     t0 = time.time()

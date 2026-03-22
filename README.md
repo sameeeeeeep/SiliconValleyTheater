@@ -12,7 +12,7 @@ SiliconValley Theater turns your Claude Code sessions into a **live comedy show*
 
 ## ✨ What Makes It Special
 
-🎭 **8 Character Themes** — Silicon Valley, Rick & Morty, Breaking Bad, The Office, Friends, Sherlock, Iron Man, and a Professor/Student duo for learning
+🎭 **9 Character Themes** — Silicon Valley, Rick & Morty, Breaking Bad, The Office, Friends, Sherlock, Iron Man, Schitt's Creek, and a Professor/Student duo for learning
 
 🎤 **Local Voice Cloning** — Clone any voice from a 10-second sample using [Pocket TTS](https://github.com/kyutai-labs/pocket-tts). Runs on-device via Apple MLX
 
@@ -112,6 +112,7 @@ open build/SiliconValleyTheater.app
 | **Chandler & Joey** | Chandler Bing, Joey Tribbiani | Friends | "Could this BE any more...", food analogies |
 | **Sherlock & Watson** | Sherlock Holmes, Dr. Watson | Sherlock | Deduction, "Elementary", Watson translates to plain English |
 | **Tony & JARVIS** | Tony Stark, JARVIS | Iron Man | Stark quips, probability calculations, 3 AM builds |
+| **David & Moira** | David Rose, Moira Rose | Schitt's Creek | Dramatic overreactions, elevated vocabulary, bébé |
 | **Professor & Bug** | Professor Pixel, Bug | Original | Teaching mode — explains concepts for beginners |
 
 ---
@@ -130,6 +131,13 @@ When the app detects technical terms in your session, it plays contextual explai
 | Database | "A filing cabinet with superpowers" |
 | Git | "A time machine for your code" |
 | Auth/JWT | "A wristband at a concert" |
+| Docker | "Shipping your code in a box with everything it needs" |
+| Kubernetes | "An air traffic controller for your containers" |
+| WebSocket | "A phone call — the line stays open both ways" |
+| Regex | "Super-powered Find and Replace written by a cat" |
+| CORS | "A nightclub with a very strict door policy" |
+| Serverless | "Hiring a chef only when you have dinner guests" |
+| TypeScript | "JavaScript but with a helmet on" |
 
 ---
 
@@ -137,22 +145,31 @@ When the app detects technical terms in your session, it plays contextual explai
 
 ```
 Sources/
-├── Engine/TheaterEngine.swift       # Core orchestrator — events → dialogue → speech
+├── Engine/
+│   ├── TheaterEngine.swift          # Core orchestrator — events → dialogue → speech
+│   └── DynamicFillerPool.swift      # Consume-and-replenish filler pool
 ├── Models/
 │   ├── Config.swift                 # Settings, per-session theme map
-│   ├── CharacterTheme.swift         # 8 themes with few-shot examples
+│   ├── CharacterTheme.swift         # 9 themes with few-shot examples
 │   ├── FillerLibrary.swift          # Pre-written fillers + term explainers
-│   └── DialogueLine.swift           # Data models
+│   ├── DialogueLine.swift           # Data models + dialogue parser
+│   └── SessionEvent.swift           # Claude Code JSONL event parser
 ├── Services/
 │   ├── DialogueGenerator.swift      # Event summarizer + LLM prompt builder
 │   ├── SessionWatcher.swift         # Watches Claude Code JSONL files
 │   ├── OllamaClient.swift           # Local LLM via Ollama
+│   ├── GroqClient.swift             # Cloud LLM via Groq
 │   ├── TTSManager.swift             # Pocket TTS / Kokoro sidecar
+│   ├── FishAudioTTSManager.swift    # Fish Audio cloud voice cloning
+│   ├── CloudTTSManager.swift        # Cartesia cloud TTS
 │   └── AudioPlayer.swift            # Pipelined audio playback
 ├── Views/
 │   ├── WidgetView.swift             # Zoom-style floating widget with rooms
 │   ├── VideoCallView.swift          # Full-size video call layout
 │   ├── ContentView.swift            # Main panel with transcript
+│   ├── CharacterPanelView.swift     # Character tile with speaking indicator
+│   ├── SubtitleOverlay.swift        # Floating dialogue subtitle
+│   ├── TranscriptView.swift         # Scrollable dialogue history
 │   └── SettingsView.swift           # Configuration UI
 └── SiliconValleyApp.swift           # Menu bar app entry point
 
@@ -167,9 +184,9 @@ Resources/Voices/                    # Voice samples per theme
 Access settings from the menu bar icon. Key options:
 
 - **LLM Provider**: Ollama (local) or Groq (cloud, faster)
-- **TTS Engine**: Pocket TTS (local cloning), Kokoro (fast local), Cartesia (cloud)
+- **TTS Engine**: Pocket TTS (local cloning), Kokoro (fast local), Fish Audio (cloud cloning), Cartesia (cloud)
 - **Buffer Duration**: How long to collect events before generating (default: 30s)
-- **Theme**: Pick from 8 character themes
+- **Theme**: Pick from 9 character themes
 - **Per-Room Themes**: Assign different themes to different sessions
 
 ---

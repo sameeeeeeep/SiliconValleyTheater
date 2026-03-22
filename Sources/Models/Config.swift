@@ -55,6 +55,9 @@ struct TheaterConfig: Codable {
     var ttsSpeed: Float
     var bufferDuration: TimeInterval
 
+    // Audio
+    var masterVolume: Float
+
     // Multi-room: maps session path -> theme ID
     var sessionThemeMap: [String: String]
 
@@ -74,6 +77,7 @@ struct TheaterConfig: Codable {
         ttsEnabled: Bool,
         ttsSpeed: Float,
         bufferDuration: TimeInterval,
+        masterVolume: Float = 0.8,
         sessionThemeMap: [String: String] = [:]
     ) {
         self.activeThemeId = activeThemeId
@@ -90,6 +94,7 @@ struct TheaterConfig: Codable {
         self.ttsEnabled = ttsEnabled
         self.ttsSpeed = ttsSpeed
         self.bufferDuration = bufferDuration
+        self.masterVolume = masterVolume
         self.sessionThemeMap = sessionThemeMap
     }
 
@@ -98,7 +103,7 @@ struct TheaterConfig: Codable {
         case activeThemeId, characters, systemPrompt
         case llmProvider, groqApiKey, groqModel, ollamaModel, ollamaURL
         case ttsProvider, cartesiaApiKey, fishAudioApiKey, ttsEnabled, ttsSpeed, bufferDuration
-        case sessionThemeMap
+        case masterVolume, sessionThemeMap
     }
 
     init(from decoder: Decoder) throws {
@@ -117,6 +122,7 @@ struct TheaterConfig: Codable {
         ttsEnabled = try c.decode(Bool.self, forKey: .ttsEnabled)
         ttsSpeed = try c.decode(Float.self, forKey: .ttsSpeed)
         bufferDuration = try c.decode(TimeInterval.self, forKey: .bufferDuration)
+        masterVolume = (try? c.decode(Float.self, forKey: .masterVolume)) ?? 0.8
         sessionThemeMap = (try? c.decode([String: String].self, forKey: .sessionThemeMap)) ?? [:]
     }
 
@@ -131,10 +137,41 @@ struct TheaterConfig: Codable {
     }
 
     /// Apply a theme's characters and system prompt.
+    /// Auto-resolves avatar images from Resources/Avatars/{characterId}.png if present.
     mutating func applyTheme(_ theme: CharacterTheme) {
         activeThemeId = theme.id
-        characters = theme.characters
+        characters = theme.characters.map { char in
+            var c = char
+            if c.avatarPath == nil {
+                c.avatarPath = Self.resolveAvatar(for: char.id)
+            }
+            return c
+        }
         systemPrompt = theme.systemPrompt
+    }
+
+    /// Resolve avatar path for a character ID from Resources/Avatars/.
+    static func resolveAvatar(for characterId: String) -> String? {
+        let bundlePath = Bundle.main.bundlePath
+        let basePath: String
+        if bundlePath.contains("/build/") {
+            basePath = bundlePath.components(separatedBy: "/build/").first ?? bundlePath
+        } else {
+            basePath = (bundlePath as NSString).deletingLastPathComponent
+        }
+        let avatarDir = basePath + "/Resources/Avatars"
+        for ext in ["png", "jpg", "jpeg", "webp"] {
+            let path = "\(avatarDir)/\(characterId).\(ext)"
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    /// Resolve the "Richard" (user) avatar.
+    static var userAvatarPath: String? {
+        resolveAvatar(for: "richard")
     }
 
     static let `default`: TheaterConfig = {
@@ -148,12 +185,13 @@ struct TheaterConfig: Codable {
             groqModel: "llama-3.3-70b-versatile",
             ollamaModel: "qwen2.5:3b",
             ollamaURL: "http://localhost:11434",
-            ttsProvider: .sidecar,
+            ttsProvider: .disabled,
             cartesiaApiKey: "",
             fishAudioApiKey: "",
             ttsEnabled: true,
             ttsSpeed: 1.0,
             bufferDuration: 60,
+            masterVolume: 0.8,
             sessionThemeMap: [:]
         )
     }()
@@ -164,6 +202,9 @@ struct TheaterConfig: Codable {
 final class ConfigStore {
     static let shared = ConfigStore()
 
+    private let queue = DispatchQueue(label: "com.siliconvalley.configstore")
+    private var saveWorkItem: DispatchWorkItem?
+
     private let configURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".siliconvalley")
@@ -172,19 +213,27 @@ final class ConfigStore {
     }()
 
     func load() -> TheaterConfig {
-        guard FileManager.default.fileExists(atPath: configURL.path),
-              let data = try? Data(contentsOf: configURL),
-              let config = try? JSONDecoder().decode(TheaterConfig.self, from: data)
-        else {
-            return .default
+        queue.sync {
+            guard FileManager.default.fileExists(atPath: configURL.path),
+                  let data = try? Data(contentsOf: configURL),
+                  let config = try? JSONDecoder().decode(TheaterConfig.self, from: data)
+            else {
+                return .default
+            }
+            return config
         }
-        return config
     }
 
+    /// Debounced save — coalesces rapid writes (e.g. volume slider) into max 1 per 0.5s.
     func save(_ config: TheaterConfig) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(config) else { return }
-        try? data.write(to: configURL, options: .atomic)
+        saveWorkItem?.cancel()
+        let item = DispatchWorkItem { [configURL] in
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            guard let data = try? encoder.encode(config) else { return }
+            try? data.write(to: configURL, options: .atomic)
+        }
+        saveWorkItem = item
+        queue.asyncAfter(deadline: .now() + 0.5, execute: item)
     }
 }

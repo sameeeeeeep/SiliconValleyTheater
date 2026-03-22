@@ -33,6 +33,12 @@ struct SessionEvent: Identifiable {
 
 enum SessionEventParser {
 
+    /// Parse a single JSONL line into SessionEvents (may return multiple for multi-block messages).
+    static func parseAll(line: String) -> [SessionEvent] {
+        guard let event = parse(line: line) else { return [] }
+        return [event]
+    }
+
     /// Parse a single JSONL line into a SessionEvent (or nil if irrelevant).
     static func parse(line: String) -> SessionEvent? {
         guard let data = line.data(using: .utf8),
@@ -43,8 +49,8 @@ enum SessionEventParser {
         let timestamp = parseTimestamp(json["timestamp"] as? String)
         let type = json["type"] as? String ?? ""
 
-        // Skip queue operations and system events
-        guard type == "user" || type == "assistant" else { return nil }
+        // Accept user, assistant, and tool-related message types
+        guard type == "user" || type == "assistant" || type == "tool_use" || type == "tool_result" else { return nil }
 
         guard let message = json["message"] as? [String: Any] else { return nil }
         let content = message["content"]
@@ -132,6 +138,19 @@ enum SessionEventParser {
             }
         }
 
+        // If multiple blocks, combine into a single event with the richest detail
+        if events.count > 1 {
+            // Prefer tool_use events (most interesting for commentary), combine details
+            let best = events.first(where: { $0.type == .toolUse }) ?? events[0]
+            let combinedDetail = events.map(\.detail).joined(separator: ". ")
+            return SessionEvent(
+                type: best.type,
+                summary: best.summary,
+                detail: String(combinedDetail.prefix(600)),
+                timestamp: timestamp,
+                sessionId: sessionId
+            )
+        }
         return events.first
     }
 

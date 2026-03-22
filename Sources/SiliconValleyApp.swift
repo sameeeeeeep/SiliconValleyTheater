@@ -109,6 +109,13 @@ struct MenuBarContentView: View {
                 Button("Stop") { engine.stop() }
             }
 
+            if engine.phase != .idle {
+                Button(engine.isPaused ? "Resume" : "Pause") {
+                    engine.togglePause()
+                }
+                .keyboardShortcut("p")
+            }
+
             Button("Refresh") {
                 engine.stop()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

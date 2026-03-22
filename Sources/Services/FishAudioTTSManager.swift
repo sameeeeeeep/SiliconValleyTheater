@@ -190,23 +190,42 @@ final class FishAudioTTSManager {
         let aliases: [String: String] = [
             "gilfoyle": "David",
             "dinesh": "Moira",
+            "david-rose": "David",
+            "moira-rose": "Moira",
         ]
 
         let resolved = aliases[voiceID.lowercased()] ?? voiceID
         let bundlePath = Bundle.main.bundlePath
         let projectRoot: String
         if bundlePath.contains("/build/") {
-            projectRoot = bundlePath.components(separatedBy: "/build/").first!
+            projectRoot = bundlePath.components(separatedBy: "/build/").first ?? bundlePath
         } else {
             projectRoot = (bundlePath as NSString).deletingLastPathComponent
         }
 
-        for path in [
-            "\(projectRoot)/Resources/Voices/\(resolved).wav",
-            "\(projectRoot)/Resources/Voices/\(voiceID).wav",
+        // Search in top-level Voices, theme subdirectories, and TTSSidecar
+        let voicesDir = "\(projectRoot)/Resources/Voices"
+        var searchPaths = [
+            "\(voicesDir)/\(resolved).wav",
+            "\(voicesDir)/\(voiceID).wav",
             "\(projectRoot)/TTSSidecar/voices/\(resolved).wav",
             "\(projectRoot)/TTSSidecar/voices/\(voiceID).wav",
-        ] {
+        ]
+        // Also search inside theme subdirectories
+        if let subdirs = try? FileManager.default.contentsOfDirectory(atPath: voicesDir) {
+            for subdir in subdirs {
+                let subPath = "\(voicesDir)/\(subdir)"
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: subPath, isDirectory: &isDir), isDir.boolValue {
+                    searchPaths.append("\(subPath)/\(resolved).wav")
+                    searchPaths.append("\(subPath)/\(voiceID).wav")
+                    // Also try lowercase
+                    searchPaths.append("\(subPath)/\(resolved.lowercased()).wav")
+                }
+            }
+        }
+
+        for path in searchPaths {
             if FileManager.default.fileExists(atPath: path) { return path }
         }
         return nil

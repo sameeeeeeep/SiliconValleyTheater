@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(TheaterEngine.self) private var engine
-    @State private var showTranscript = false
+    @AppStorage("main.showTranscript") private var showTranscript = false
     @State private var showSettings = false
     @State private var showSessionPicker = false
     @State private var isHoveringControls = false
@@ -56,6 +56,14 @@ struct ContentView: View {
             SettingsView()
                 .environment(engine)
                 .frame(minWidth: 520, minHeight: 500)
+        }
+        .onKeyPress(.space) {
+            if engine.phase == .idle { engine.start() } else { engine.stop() }
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            engine.skipCurrentLine()
+            return .handled
         }
     }
 
@@ -135,14 +143,25 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .help("Demo: generate test dialogue")
 
-            // Camera (decorative)
-            controlButton(icon: "video.fill", tint: .white.opacity(0.85), size: 42)
+            // Pause / Resume
+            Button {
+                engine.togglePause()
+            } label: {
+                Image(systemName: engine.isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(engine.isPaused ? .yellow : .white.opacity(0.8))
+                    .frame(width: 42, height: 42)
+                    .background(Circle().fill(engine.isPaused ? .yellow.opacity(0.15) : .white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .help(engine.isPaused ? "Resume" : "Pause")
+            .disabled(engine.phase == .idle)
 
             // Play / Stop
             Button {
                 if engine.phase == .idle { engine.start() } else { engine.stop() }
             } label: {
-                Image(systemName: engine.phase == .idle ? "play.fill" : "pause.fill")
+                Image(systemName: engine.phase == .idle ? "play.fill" : "stop.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 42, height: 42)
@@ -151,6 +170,16 @@ struct ContentView: View {
                     )
             }
             .buttonStyle(.plain)
+
+            // Volume
+            HStack(spacing: 4) {
+                Image(systemName: engine.config.masterVolume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+                Slider(value: Bindable(engine).config.masterVolume, in: 0...1)
+                    .frame(width: 60)
+                    .controlSize(.mini)
+            }
 
             // Skip
             Button { engine.skipCurrentLine() } label: {
@@ -248,13 +277,11 @@ struct ContentView: View {
     }
 
     private var currentSessionLabel: String {
-        if let path = engine.watcher.currentSessionFile {
-            let url = URL(fileURLWithPath: path)
-            let project = url.deletingLastPathComponent().lastPathComponent
-                .replacingOccurrences(of: "-Users-sameeprehlan-", with: "")
-                .replacingOccurrences(of: "-", with: "/")
-            let sessionShort = url.deletingPathExtension().lastPathComponent.prefix(6)
-            return project.isEmpty ? "Session \(sessionShort)" : "\(project.suffix(30))·\(sessionShort)"
+        if let path = engine.watcher.currentSessionFile,
+           let session = engine.watcher.availableSessions.first(where: { $0.path == path }) {
+            return session.displayName
+        } else if engine.watcher.currentSessionFile != nil {
+            return "Active session"
         }
         return "No session"
     }

@@ -103,8 +103,10 @@ final class CloudTTSManager {
                 "id": builtinID
             ]
         } else {
-            // Alternate between two default voices based on voiceID hash
-            let fallbackID = voiceID.hashValue % 2 == 0
+            // Alternate between two default voices based on stable character index
+            // (hashValue is non-deterministic across launches, so use character count instead)
+            let stableIndex = voiceID.utf8.reduce(0) { $0 &+ Int($1) }
+            let fallbackID = stableIndex % 2 == 0
                 ? "a0e99841-438c-4a64-b679-ae501e7d6091"  // Barbershop Man
                 : "79a125e8-cd45-4c13-8a67-188112f4dd22"  // British Lady
             voiceConfig = [
@@ -206,36 +208,46 @@ final class CloudTTSManager {
     // MARK: - Reference WAV Lookup
 
     private func findReferenceWAV(voiceID: String) -> String? {
-        // Voice aliases: map character voiceID → reference wav filename
         let aliases: [String: String] = [
             "gilfoyle": "David",
             "dinesh": "Moira",
+            "david-rose": "David",
+            "moira-rose": "Moira",
         ]
 
         let resolved = aliases[voiceID.lowercased()] ?? voiceID
         let bundlePath = Bundle.main.bundlePath
 
-        // Try project Resources/Voices directory
         let projectRoot: String
         if bundlePath.contains("/build/") {
-            projectRoot = bundlePath.components(separatedBy: "/build/").first!
+            projectRoot = bundlePath.components(separatedBy: "/build/").first ?? bundlePath
         } else {
             projectRoot = (bundlePath as NSString).deletingLastPathComponent
         }
 
-        let paths = [
-            "\(projectRoot)/Resources/Voices/\(resolved).wav",
-            "\(projectRoot)/Resources/Voices/\(voiceID).wav",
+        let voicesDir = "\(projectRoot)/Resources/Voices"
+        var searchPaths = [
+            "\(voicesDir)/\(resolved).wav",
+            "\(voicesDir)/\(voiceID).wav",
             "\(projectRoot)/TTSSidecar/voices/\(resolved).wav",
             "\(projectRoot)/TTSSidecar/voices/\(voiceID).wav",
         ]
-
-        for path in paths {
-            if FileManager.default.fileExists(atPath: path) {
-                return path
+        // Search theme subdirectories
+        if let subdirs = try? FileManager.default.contentsOfDirectory(atPath: voicesDir) {
+            for subdir in subdirs {
+                let subPath = "\(voicesDir)/\(subdir)"
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: subPath, isDirectory: &isDir), isDir.boolValue {
+                    searchPaths.append("\(subPath)/\(resolved).wav")
+                    searchPaths.append("\(subPath)/\(voiceID).wav")
+                    searchPaths.append("\(subPath)/\(resolved.lowercased()).wav")
+                }
             }
         }
 
+        for path in searchPaths {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
         return nil
     }
 

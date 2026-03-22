@@ -7,11 +7,19 @@ func debugLog(_ msg: String) {
     let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
     let line = "[\(ts)] \(msg)\n"
     print(line, terminator: "")
-    let logPath = FileManager.default.homeDirectoryForCurrentUser
+    let logDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".siliconvalley")
-        .appendingPathComponent("debug.log")
-    try? FileManager.default.createDirectory(
-        at: logPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let logPath = logDir.appendingPathComponent("debug.log")
+    try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+
+    // Rotate if log exceeds 5 MB
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: logPath.path),
+       let size = attrs[.size] as? UInt64, size > 5_000_000 {
+        let oldPath = logDir.appendingPathComponent("debug.old.log")
+        try? FileManager.default.removeItem(at: oldPath)
+        try? FileManager.default.moveItem(at: logPath, to: oldPath)
+    }
+
     if let data = line.data(using: .utf8) {
         if FileManager.default.fileExists(atPath: logPath.path) {
             if let fh = try? FileHandle(forWritingTo: logPath) {
@@ -44,12 +52,30 @@ final class TheaterEngine {
     private(set) var ttsReady = false
     private(set) var ttsStarting = false
     private(set) var error: String?
+    private(set) var errorTime: Date?
+    private(set) var isPaused = false
 
     /// Tracks the last dialogue snippet per session path (for room list display).
     private(set) var roomSnippets: [String: String] = [:]
 
+    /// The latest user message, summarized for display in the "Richard" tile.
+    private(set) var latestUserMessage: String?
+    /// Timestamp of the latest user message (for fade-out timing).
+    private(set) var latestUserMessageTime: Date?
+
+    /// Whether the app needs initial setup (LLM provider not configured).
+    var needsSetup: Bool {
+        switch config.llmProvider {
+        case .groq:  return config.groqApiKey.isEmpty
+        case .ollama: return !llmAvailable
+        }
+    }
+
     var config: TheaterConfig {
-        didSet { ConfigStore.shared.save(config) }
+        didSet {
+            audioPlayer.masterVolume = config.masterVolume
+            ConfigStore.shared.save(config)
+        }
     }
 
     enum Phase: String {
@@ -78,11 +104,10 @@ final class TheaterEngine {
     private var isGenerating = false
     private var coldOpenTask: Task<Void, Never>?
     private var coldOpenPlayed = false
-    private var lastColdOpenIndex: Int = -1
-    private var fillerTask: Task<Void, Never>?
-    private var fillerQueue: [DialogueLine] = []       // Pre-generated filler lines ready to play
-    private var fillerAudioCache: [String: Data] = [:] // text hash → WAV data
+    private var introPool: [[(Int, String)]] = [] // consume-and-discard intro variations
     private var voiceCache: [String: Data] = [:]       // text+voice hash → WAV data (persists in memory)
+    private let fillerPool = DynamicFillerPool()       // Dynamic filler pool with consume-and-replenish
+    private(set) var theaterContext: TheaterContext?    // Project-specific context from .claude/theater.md
 
     // MARK: - Init
 
@@ -91,6 +116,7 @@ final class TheaterEngine {
         let client = Self.makeLLMClient(config: loadedConfig)
         self.config = loadedConfig
         self.dialogueGenerator = DialogueGenerator(client: client)
+        self.audioPlayer.masterVolume = loadedConfig.masterVolume
     }
 
     private static func makeLLMClient(config: TheaterConfig) -> any LLMClient {
@@ -112,6 +138,9 @@ final class TheaterEngine {
         // Recreate LLM client in case config changed
         dialogueGenerator = DialogueGenerator(client: Self.makeLLMClient(config: config))
 
+        // Seed filler pool with static content for instant playback
+        fillerPool.seed(themeId: config.activeThemeId)
+
         phase = .watching
         debugLog("[Theater] Started (\(config.llmProvider.rawValue) / \(config.ttsProvider.rawValue))")
 
@@ -126,11 +155,10 @@ final class TheaterEngine {
             } else {
                 switch config.llmProvider {
                 case .groq:
-                    error = "Groq API not reachable. Check your API key."
+                    setError("Groq API not reachable. Check your API key at console.groq.com")
                 case .ollama:
-                    error = "Ollama not reachable at \(config.ollamaURL). Is it running?"
+                    setError("Ollama not reachable at \(config.ollamaURL). Run 'ollama serve' first.")
                 }
-                debugLog("[Theater] ERROR: \(error!)")
             }
 
             await setupTTS()
@@ -150,6 +178,11 @@ final class TheaterEngine {
             let stream = self.watcher.watch()
             debugLog("[Theater] Watcher started. Session file: \(self.watcher.currentSessionFile ?? "searching...")")
 
+            // Load theater.md after watcher finds a session
+            if let sessionPath = self.watcher.currentSessionFile, self.theaterContext == nil {
+                self.theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
+            }
+
             for await event in stream {
                 guard self.isRunning else { break }
                 debugLog("[Theater] Event: \(event.type.rawValue) - \(event.summary.prefix(80))")
@@ -161,12 +194,14 @@ final class TheaterEngine {
 
     func stop() {
         isRunning = false
+        isPaused = false
         watchTask?.cancel()
         watchTask = nil
         bufferTask?.cancel()
         bufferTask = nil
         coldOpenTask?.cancel()
         coldOpenTask = nil
+        fillerPool.cancelAll()
         watcher.stop()
         audioPlayer.stopAll()
         if !isGenerating {
@@ -178,6 +213,30 @@ final class TheaterEngine {
         debugLog("[Theater] Stopped")
     }
 
+    func pause() {
+        guard isRunning, !isPaused else { return }
+        isPaused = true
+        audioPlayer.stopAll()
+        fillerPool.pauseReplenishing()
+        debugLog("[Theater] Paused")
+    }
+
+    func resume() {
+        guard isPaused else { return }
+        isPaused = false
+        debugLog("[Theater] Resumed")
+        // Re-trigger generation if events accumulated while paused
+        if !eventBuffer.isEmpty {
+            startBufferTimer()
+        } else {
+            startFillerReplenishment()
+        }
+    }
+
+    func togglePause() {
+        if isPaused { resume() } else { pause() }
+    }
+
     func skipCurrentLine() {
         audioPlayer.stopAll()
     }
@@ -185,6 +244,23 @@ final class TheaterEngine {
     func clearHistory() {
         dialogueHistory.removeAll()
         eventLog.removeAll()
+    }
+
+    // MARK: - Error Handling
+
+    private func setError(_ message: String) {
+        error = message
+        errorTime = Date()
+        debugLog("[Theater] ERROR: \(message)")
+        // Auto-clear errors after 10 seconds
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard let self, self.errorTime != nil else { return }
+            if let errorTime = self.errorTime, Date().timeIntervalSince(errorTime) >= 9 {
+                self.error = nil
+                self.errorTime = nil
+            }
+        }
     }
 
     /// Inject fake events and trigger generation immediately (for testing).
@@ -217,6 +293,8 @@ final class TheaterEngine {
             if let theme = ThemeStore.shared.allThemes().first(where: { $0.id == themeId }) {
                 config.applyTheme(theme)
             }
+            // Re-seed filler pool with new theme's content
+            fillerPool.resetForTheme(themeId: themeId)
         }
         debugLog("[Theater] Set room theme: \(themeId) for \(sessionPath.suffix(40))")
     }
@@ -234,6 +312,12 @@ final class TheaterEngine {
     /// Switch the active room: pin to this session and apply its theme.
     func selectRoom(_ sessionPath: String) {
         watcher.pinSession(sessionPath)
+        latestUserMessage = nil
+        latestUserMessageTime = nil
+        currentLine = nil
+        currentSpeaker = nil
+        // Reload theater context for the new room's project
+        theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
         let themeId = config.themeId(forSession: sessionPath)
         if let theme = ThemeStore.shared.allThemes().first(where: { $0.id == themeId }) {
             config.applyTheme(theme)
@@ -302,11 +386,58 @@ final class TheaterEngine {
         ttsStarting = false
     }
 
+    /// Recent event details for context-aware filler selection.
+    private var recentEventDetails: [String] {
+        let recent = eventLog.suffix(10)
+        return recent.map(\.detail)
+    }
+
+    // MARK: - User Message Summary
+
+    /// Summarize a user message into a short "what Richard said" blurb for the UI tile.
+    /// Keeps it short and natural — like a Zoom call caption.
+    private func summarizeUserMessage(_ detail: String) -> String {
+        // Strip "User asked: " or similar prefixes
+        var text = detail
+        for prefix in ["User asked: ", "User said: ", "User: "] {
+            if text.hasPrefix(prefix) {
+                text = String(text.dropFirst(prefix.count))
+                break
+            }
+        }
+
+        // Truncate to ~80 chars at a word boundary
+        if text.count > 80 {
+            let truncated = text.prefix(80)
+            if let lastSpace = truncated.lastIndex(of: " ") {
+                text = String(truncated[truncated.startIndex..<lastSpace]) + "..."
+            } else {
+                text = String(truncated) + "..."
+            }
+        }
+
+        return text
+    }
+
     // MARK: - Event Handling
 
     private func handleEvent(_ event: SessionEvent) {
         eventLog.append(event)
         if eventLog.count > 200 { eventLog.removeFirst() }
+
+        // Lazy-load theater context on first event if not loaded yet
+        if theaterContext == nil, let sessionPath = watcher.currentSessionFile {
+            theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
+        }
+
+        // Capture user messages for the "Richard" tile
+        if event.type == .userMessage {
+            latestUserMessage = summarizeUserMessage(event.detail)
+            latestUserMessageTime = Date()
+        }
+
+        // Pause filler replenishment — real events take priority
+        fillerPool.pauseReplenishing()
 
         eventBuffer.append(event)
 
@@ -324,12 +455,22 @@ final class TheaterEngine {
             guard let self else { return }
             try? await Task.sleep(for: .seconds(self.config.bufferDuration))
             guard !Task.isCancelled else { return }
+
+            // If we've been buffering for a while without generating,
+            // play fillers to fill the silence while we wait for more events
+            if let start = self.bufferStartTime,
+               Date().timeIntervalSince(start) > 4.0,
+               self.phase == .buffering,
+               !self.isGenerating {
+                let _ = await self.playFillers()
+            }
+
             self.triggerGeneration()
         }
     }
 
     private func triggerGeneration() {
-        guard !isGenerating else { return }
+        guard !isGenerating, !isPaused else { return }
         let events = eventBuffer
         eventBuffer.removeAll()
         bufferStartTime = nil
@@ -350,14 +491,25 @@ final class TheaterEngine {
                 return
             }
 
-            // Check for technical terms in the events — play contextual explainer filler
+            // Check for technical terms in the events — play contextual explainer from pool
             let allTerms = eventsForTermDetect.map { $0.detail }
-            if let explainer = FillerLibrary.termTriggeredFiller(forTerms: allTerms) {
-                let lines = explainer.enumerated().map { i, text in
-                    DialogueLine(characterIndex: i % 2, text: text)
-                }
+            if let explainerSet = self.fillerPool.consumeTermExplainer(forTerms: allTerms) {
                 debugLog("[Theater] Playing term-triggered explainer filler...")
-                await self.playLines(lines)
+                await self.playLines(explainerSet.lines)
+            }
+
+            // Detect novel terms not covered by existing explainers — generate in background
+            let novelTerms = self.fillerPool.detectNovelTerms(fromEventDetails: allTerms)
+            for term in novelTerms {
+                self.fillerPool.generateTermExplainer(
+                    term: term,
+                    generator: self.dialogueGenerator,
+                    config: self.config,
+                    activeTheme: ThemeStore.shared.allThemes().first { $0.id == self.config.activeThemeId },
+                    synthesize: { [weak self] text, voiceID, speed in
+                        await self?.synthesizeCached(text: text, voiceID: voiceID, speed: speed)
+                    }
+                )
             }
 
             if !self.eventBuffer.isEmpty {
@@ -366,88 +518,48 @@ final class TheaterEngine {
                 debugLog("[Theater] New events arrived during generation, rebuffering...")
                 self.startBufferTimer()
             } else {
-                self.startFillerGeneration()
+                self.startFillerReplenishment()
             }
         }
     }
 
-    /// Load pre-written filler banter and pre-synthesize voice for instant playback. No LLM needed.
-    private func startFillerGeneration() {
-        guard fillerQueue.isEmpty else { return }
-        fillerTask?.cancel()
-        fillerTask = Task { @MainActor [weak self] in
-            guard let self, self.isRunning else { return }
-
-            let fillers = FillerLibrary.randomSet(
-                themeId: self.config.activeThemeId,
-                characters: self.config.characters
-            )
-            guard !fillers.isEmpty else { return }
-
-            debugLog("[Theater] Pre-synthesizing \(fillers.count) filler lines...")
-            let cfg = self.config
-            for line in fillers {
-                guard !Task.isCancelled else { break }
-                let charIdx = min(line.characterIndex, cfg.characters.count - 1)
-                let voiceID = cfg.characters[charIdx].voiceID
-                let _ = await self.synthesizeCached(text: line.text, voiceID: voiceID, speed: cfg.ttsSpeed)
+    /// Start background replenishment of the filler pool via LLM generation.
+    private func startFillerReplenishment() {
+        guard isRunning else { return }
+        // Build context summary from recent events for relevant filler generation
+        let contextSummary = recentEventDetails.suffix(5).joined(separator: ". ")
+        fillerPool.startReplenishing(
+            generator: dialogueGenerator,
+            config: config,
+            activeTheme: ThemeStore.shared.allThemes().first { $0.id == config.activeThemeId },
+            recentContext: contextSummary.isEmpty ? nil : String(contextSummary.prefix(300)),
+            synthesize: { [weak self] text, voiceID, speed in
+                await self?.synthesizeCached(text: text, voiceID: voiceID, speed: speed)
             }
-
-            self.fillerQueue = fillers
-            debugLog("[Theater] \(fillers.count) fillers voice-cached and ready")
-        }
+        )
     }
 
-    /// Play fillers from the pre-cached queue. Returns true if fillers were played.
+    /// Play the next filler set from the pool. Returns true if fillers were played.
     private func playFillers() async -> Bool {
-        guard !fillerQueue.isEmpty else { return false }
-        let lines = fillerQueue
-        fillerQueue.removeAll()
+        guard let set = fillerPool.consumeNext(contextHints: recentEventDetails) else { return false }
 
-        debugLog("[Theater] Playing \(lines.count) cached fillers...")
-        for line in lines {
-            guard isRunning, !isGenerating else { break }
-
-            phase = .playing
-            currentLine = line
-            currentSpeaker = line.characterIndex
-            dialogueHistory.append(line)
-
-            let charIdx = min(line.characterIndex, config.characters.count - 1)
-            let voiceID = config.characters[charIdx].voiceID
-            let cacheKey = "\(voiceID):\(line.text)"
-
-            if let cached = voiceCache[cacheKey] {
-                // Instant playback from cache!
-                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                    audioPlayer.playOnce(data: cached) { cont.resume() }
-                }
-            } else {
-                // Synthesize on the fly (shouldn't happen if pre-cached worked)
-                let audio = await synthesizeCached(text: line.text, voiceID: voiceID, speed: config.ttsSpeed)
-                if let audio {
-                    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                        audioPlayer.playOnce(data: audio) { cont.resume() }
-                    }
-                } else {
-                    try? await Task.sleep(for: .seconds(2.0))
-                }
-            }
-        }
-
-        currentLine = nil
-        currentSpeaker = nil
-        phase = isRunning ? .watching : .idle
+        debugLog("[Theater] Playing filler set (\(set.source), \(set.lines.count) lines, pool: \(fillerPool.poolStatus))")
+        await playLines(set.lines)
         return true
     }
 
     /// Synthesize with voice cache — checks disk cache, then memory, then synthesizes.
-    /// Persists to disk so fillers survive app restarts.
+    /// Persists to disk so fillers survive app restarts. Includes 15s timeout for TTS calls.
     private func synthesizeCached(text: String, voiceID: String, speed: Float) async -> Data? {
         let cacheKey = "\(voiceID):\(text)"
         let diskKey = cacheKey.data(using: .utf8)!.base64EncodedString()
             .prefix(40).replacingOccurrences(of: "/", with: "_")
-        let diskPath = NSHomeDirectory() + "/.siliconvalley/voice_cache/\(diskKey).wav"
+        let cacheDir = NSHomeDirectory() + "/.siliconvalley/voice_cache"
+        let diskPath = cacheDir + "/\(diskKey).wav"
+
+        // Ensure cache directory exists
+        try? FileManager.default.createDirectory(
+            atPath: cacheDir, withIntermediateDirectories: true)
 
         // Check memory cache first
         if let cached = voiceCache[cacheKey] { return cached }
@@ -459,84 +571,92 @@ final class TheaterEngine {
             return diskData
         }
 
-        // Synthesize fresh
-        let audio: Data?
-        switch config.ttsProvider {
-        case .sidecar, .kokoroSidecar:
-            audio = await sidecarTTSManager.synthesize(text: text, voiceID: voiceID, speed: speed)
-        case .fishAudio:
-            audio = await fishTTSManager.synthesize(text: text, voiceID: voiceID, speed: speed)
-        case .cartesia:
-            audio = await cloudTTSManager.synthesize(text: text, voiceID: voiceID, speed: speed)
-        case .disabled:
-            audio = nil
+        // Synthesize fresh with 15s timeout to prevent hangs
+        let provider = config.ttsProvider
+        let audio: Data? = await withTaskGroup(of: Data?.self) { group in
+            group.addTask { @MainActor [self] in
+                switch provider {
+                case .sidecar, .kokoroSidecar:
+                    return await self.sidecarTTSManager.synthesize(text: text, voiceID: voiceID, speed: speed)
+                case .fishAudio:
+                    return await self.fishTTSManager.synthesize(text: text, voiceID: voiceID, speed: speed)
+                case .cartesia:
+                    return await self.cloudTTSManager.synthesize(text: text, voiceID: voiceID, speed: speed)
+                case .disabled:
+                    return nil
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                return nil // timeout sentinel
+            }
+            // Return whichever finishes first
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
         }
 
         if let audio {
             voiceCache[cacheKey] = audio
-            // Persist to disk
             try? audio.write(to: URL(fileURLWithPath: diskPath))
             debugLog("[VoiceCache] Cached to disk: \(text.prefix(30))...")
 
             // Keep memory cache bounded
-            if voiceCache.count > 80 {
-                let oldest = voiceCache.keys.first!
-                voiceCache.removeValue(forKey: oldest)
+            while voiceCache.count > 80 {
+                if let oldest = voiceCache.keys.first {
+                    voiceCache.removeValue(forKey: oldest)
+                }
             }
+            // Prune disk cache if too large (>200 files)
+            pruneVoiceCacheIfNeeded(cacheDir: cacheDir)
+        } else if provider != .disabled {
+            debugLog("[VoiceCache] TTS timed out or failed for: \(text.prefix(30))...")
         }
         return audio
+    }
+
+    /// Prune disk voice cache to keep it under 200 files.
+    private func pruneVoiceCacheIfNeeded(cacheDir: String) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: cacheDir) else { return }
+        guard files.count > 200 else { return }
+        let sorted = files.compactMap { name -> (String, Date)? in
+            let path = cacheDir + "/" + name
+            guard let attrs = try? fm.attributesOfItem(atPath: path),
+                  let date = attrs[.modificationDate] as? Date else { return nil }
+            return (path, date)
+        }.sorted { $0.1 < $1.1 }
+        for (path, _) in sorted.prefix(sorted.count - 150) {
+            try? fm.removeItem(atPath: path)
+        }
+        debugLog("[VoiceCache] Pruned \(sorted.count - 150) old cache files")
     }
 
     // MARK: - Cold Open
 
     /// Play pre-baked intro banter while waiting for real events.
     private func playColdOpen() async {
-        guard isRunning, !isGenerating else { return }
+        guard isRunning, !isGenerating, !config.characters.isEmpty else { return }
 
         let char0 = config.characters[0]
         let char1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
 
-        // Detect project name from session file
+        // Detect project name from session file using displayName resolver
         let projectHint: String
-        if let path = watcher.currentSessionFile {
-            let raw = URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent
-            projectHint = raw
-                .replacingOccurrences(of: "-Users-sameeprehlan-", with: "")
-                .replacingOccurrences(of: "-", with: " ")
-                .replacingOccurrences(of: "Documents ", with: "")
-                .replacingOccurrences(of: "Claude Code ", with: "")
-                .trimmingCharacters(in: .whitespaces)
+        if let path = watcher.currentSessionFile,
+           let session = watcher.availableSessions.first(where: { $0.path == path }) {
+            projectHint = session.displayName
         } else {
             projectHint = "some project"
         }
 
-        // === PHASE 1: "Joining the call" intro (pre-written, will be voice-cached) ===
-        let joiners: [[(Int, String)]] = [
-            [
-                (0, "Richard's calling. He probably broke something again."),
-                (1, "It's about that \(projectHint) thing he's been working on."),
-                (0, "Let me guess. He wants us to fix it while he takes credit."),
-                (1, "That's literally every standup. But sure, let's join."),
-                (0, "Alright. I'm in. What's he saying?"),
-                (1, "Hold on, let me pull it up. Okay I can see the session."),
-            ],
-            [
-                (1, "Oh great, Richard's on the line. This should be fun."),
-                (0, "He's working on \(projectHint). Wants our help apparently."),
-                (1, "Our help. Meaning he wants ME to do the work and YOU to judge it."),
-                (0, "That's a fair description of our dynamic, yes."),
-                (1, "Fine. Let's see what he's gotten himself into this time."),
-                (0, "Connecting now. Try to look like you care."),
-            ],
-            [
-                (0, "Incoming call from Richard. \(projectHint) related."),
-                (1, "Didn't he say he could handle this one on his own?"),
-                (0, "He says that every time. And every time, here we are."),
-                (1, "True. Remember the last time he went solo? Three day outage."),
-                (0, "That's exactly why we're joining. Let's go."),
-                (1, "Alright, I'm here. What's happening on his end?"),
-            ],
-        ]
+        // === PHASE 1: "Joining the call" intro (consume-and-discard, voice-cached) ===
+        // Seed intro pool if empty
+        if introPool.isEmpty {
+            introPool = Self.makeIntroPool(projectHint: projectHint)
+            introPool.shuffle()
+            debugLog("[Theater] Seeded intro pool with \(introPool.count) variations")
+        }
 
         // === PHASE 2: Fire off LLM with first user message during intro playback ===
         // Grab the first user message from the event buffer if available
@@ -549,24 +669,24 @@ final class TheaterEngine {
             let gen = dialogueGenerator
             let cfg = config
             let theme = ThemeStore.shared.allThemes().first { $0.id == cfg.activeThemeId }
-            let c0Name = char0.name
-            let c1Name = char1.name
+            let c0NameCtx = char0.name
+            let c1NameCtx = char1.name
             let proj = projectHint
 
             contextGenTask = Task.detached {
                 let prompt = """
-                Write 6 lines. \(c0Name) and \(c1Name) discuss what Richard (their boss) just asked them to work on. Explain what it means simply. Stay in character. Under 25 words each.
+                Write 6 lines. \(c0NameCtx) and \(c1NameCtx) discuss what the developer just asked them to work on. Explain what it means simply. Stay in character. Under 25 words each.
 
-                Richard wants help with \(proj). He said: "\(String(msg.prefix(200)))"
+                The developer wants help with \(proj). They said: "\(String(msg.prefix(200)))"
 
                 \(theme?.fewShotExample ?? "")
 
-                \(c0Name):
-                \(c1Name):
-                \(c0Name):
-                \(c1Name):
-                \(c0Name):
-                \(c1Name):
+                \(c0NameCtx):
+                \(c1NameCtx):
+                \(c0NameCtx):
+                \(c1NameCtx):
+                \(c0NameCtx):
+                \(c1NameCtx):
                 """
                 let names = cfg.characters.map(\.name)
                 do {
@@ -579,16 +699,13 @@ final class TheaterEngine {
             debugLog("[Theater] Fired context generation during intro: \(String(msg.prefix(60)))...")
         }
 
-        // Pool of cold open variations — combining joiners with filler banter
-        let openers = joiners
-
-        // Pick a different opener each time (avoid repeats)
-        var pick = Int.random(in: 0..<openers.count)
-        if pick == lastColdOpenIndex && openers.count > 1 {
-            pick = (pick + 1) % openers.count
+        // Consume one intro from the pool (never replayed)
+        let chosen: [(Int, String)]
+        if !introPool.isEmpty {
+            chosen = introPool.removeFirst()
+        } else {
+            chosen = [(0, "Let's see what's happening with \(projectHint)."), (1, "Connecting now.")]
         }
-        lastColdOpenIndex = pick
-        let chosen = openers[pick]
         let coldLines = chosen.map { DialogueLine(characterIndex: $0.0, text: $0.1) }
 
         debugLog("[Theater] Playing intro (\(coldLines.count) lines)...")
@@ -604,28 +721,111 @@ final class TheaterEngine {
                 await playLines(contextLines)
             } else if contextLines.isEmpty {
                 debugLog("[Theater] Context generation returned empty — playing fillers")
-                // Play a random filler set instead
-                let fillers = FillerLibrary.randomSet(themeId: config.activeThemeId, characters: config.characters)
-                if !fillers.isEmpty {
-                    await playLines(fillers)
+                if let set = fillerPool.consumeNext(contextHints: recentEventDetails) {
+                    await playLines(set.lines)
                 }
             }
         } else {
             // No user message yet — play fillers while waiting
-            let fillers = FillerLibrary.randomSet(themeId: config.activeThemeId, characters: config.characters)
-            if !fillers.isEmpty {
+            if let set = fillerPool.consumeNext(contextHints: recentEventDetails) {
                 debugLog("[Theater] No user message yet — playing filler banter...")
-                await playLines(fillers)
+                await playLines(set.lines)
             }
         }
 
-        // Start pre-caching more fillers for future gaps
-        startFillerGeneration()
+        // Start replenishing filler pool for future gaps
+        startFillerReplenishment()
 
         currentLine = nil
         currentSpeaker = nil
         phase = isRunning ? .watching : .idle
         debugLog("[Theater] Intro sequence done")
+    }
+
+    /// Build the full intro pool — show-inspired variations that get consumed once each.
+    private static func makeIntroPool(projectHint: String) -> [[(Int, String)]] {
+        [
+            [
+                (0, "Looks like someone's working on \(projectHint). Let me pull up the session."),
+                (1, "Of course they called us. Nobody calls when things are going well."),
+                (0, "That's fair. How bad can it be?"),
+                (1, "You say that every time. And every time it's worse."),
+                (0, "I'll take that bet. Connecting now."),
+                (1, "Okay I can see the code. Let's do this."),
+            ],
+            [
+                (1, "We've got an incoming session. \(projectHint)."),
+                (0, "Alright. What are they breaking this time."),
+                (1, "Hey, maybe they're building something great."),
+                (0, "In my experience, building and breaking are the same activity."),
+                (1, "That's surprisingly philosophical for you."),
+                (0, "I contain multitudes. And also several root kits. Connecting."),
+            ],
+            [
+                (0, "New session. \(projectHint)."),
+                (1, "Oh nice I've been curious what they'd do next."),
+                (0, "Last time they spent an hour renaming variables."),
+                (1, "Naming things IS one of the two hard problems in computer science."),
+                (0, "The other being cache invalidation. And off by one errors."),
+                (1, "That's three things. Anyway I'm in."),
+            ],
+            [
+                (1, "You know what, I have a good feeling about this session."),
+                (0, "That's because you have no pattern recognition. Every session is chaos."),
+                (1, "I choose optimism. It's a lifestyle choice."),
+                (0, "It's a coping mechanism. But sure. Let's connect to \(projectHint)."),
+                (1, "See? We're already bonding over shared delusion."),
+                (0, "That's not what bonding is."),
+            ],
+            [
+                (0, "I was about to mass delete your config files but \(projectHint) just came in."),
+                (1, "Wait what? Which config files?"),
+                (0, "Relax. Your configs are safe. For now. Let's see what they need."),
+                (1, "You can't just SAY things like that and move on."),
+                (0, "I can and I did. Focus. Session's live."),
+                (1, "Fine but we're revisiting this later."),
+            ],
+            [
+                (1, "Another day another session. Who needs hobbies when you have \(projectHint)."),
+                (0, "I have hobbies. Server maintenance. Network security. Destroying Dinesh's confidence."),
+                (1, "Two of those are work and the third is just mean."),
+                (0, "And yet I'm never bored. Connecting now."),
+                (1, "One day you'll say something nice to me."),
+                (0, "Don't hold your breath. Code's loading."),
+            ],
+            [
+                (0, "Dinesh. Session alert."),
+                (1, "Ooh what are they working on?"),
+                (0, "\(projectHint). Based on the project name alone, I give it a thirty percent chance of being well-structured."),
+                (1, "That's generous for you. You gave Richard's compression algorithm fifteen percent."),
+                (0, "And I was right. It crashed the demo. Twice."),
+                (1, "Okay fair point. Let's see what we're dealing with."),
+            ],
+            [
+                (1, "I just made coffee and there's a session starting. Perfect timing."),
+                (0, "Your coffee tastes like despair and hazelnut. But yes. \(projectHint) is up."),
+                (1, "It's a COLD BREW. It's supposed to taste like that."),
+                (0, "Sure it is. Let's connect before your coffee gets as cold as your code reviews."),
+                (1, "My code reviews are THOROUGH not cold."),
+                (0, "You approved seventeen PRs in twelve minutes last Thursday. Thorough."),
+            ],
+            [
+                (0, "You know what Big Head would say right now? 'Wait what's a session.'"),
+                (1, "Big Head got ten million dollars from Erlich for saying that exact sentence."),
+                (0, "And he somehow turned that into a board seat. The man fails upward."),
+                (1, "Meanwhile we're here. Working. On \(projectHint). Like professionals."),
+                (0, "Professionals who are underpaid and over-caffeinated."),
+                (1, "Don't call us out like that. Connecting."),
+            ],
+            [
+                (1, "This is like that time Erlich pitched Aviato to a room full of investors."),
+                (0, "You mean the time he mispronounced his own company name? Yes. Very inspiring."),
+                (1, "He got funded though. Confidence matters."),
+                (0, "He also got sued. Twice. Let's just open \(projectHint) and be competent about it."),
+                (1, "Competence is our brand."),
+                (0, "Your brand. Mine is controlled chaos."),
+            ],
+        ]
     }
 
     /// Play a list of dialogue lines with voice caching. Reusable helper.
@@ -642,6 +842,7 @@ final class TheaterEngine {
             currentLine = line
             currentSpeaker = line.characterIndex
             dialogueHistory.append(line)
+            if dialogueHistory.count > 500 { dialogueHistory.removeFirst() }
 
             if useTTS {
                 let charIdx = min(line.characterIndex, config.characters.count - 1)
@@ -672,8 +873,9 @@ final class TheaterEngine {
         let activeTheme = ThemeStore.shared.allThemes().first { $0.id == config.activeThemeId }
         let lines: [DialogueLine]
         do {
+            let ctx = theaterContext
             lines = try await Task.detached {
-                try await generator.generate(events: events, config: cfg, activeTheme: activeTheme)
+                try await generator.generate(events: events, config: cfg, activeTheme: activeTheme, theaterContext: ctx)
             }.value
             debugLog("[Theater] Generated \(lines.count) dialogue lines")
         } catch {
@@ -755,6 +957,7 @@ final class TheaterEngine {
             currentLine = line
             currentSpeaker = line.characterIndex
             dialogueHistory.append(line)
+            if dialogueHistory.count > 500 { dialogueHistory.removeFirst() }
 
             // Track snippet for the active room
             if let sessionFile = watcher.currentSessionFile {

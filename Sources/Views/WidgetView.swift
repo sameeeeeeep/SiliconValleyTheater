@@ -8,7 +8,7 @@ import SwiftUI
 struct WidgetView: View {
     @Environment(TheaterEngine.self) private var engine
     @State private var isHovered = false
-    @State private var showRooms = true
+    @AppStorage("widget.showRooms") private var showRooms = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,6 +53,20 @@ struct WidgetView: View {
         .animation(.easeInOut(duration: 0.15), value: isHovered)
         .animation(.easeInOut(duration: 0.2), value: showRooms)
         .animation(.spring(response: 0.3), value: engine.currentLine?.id)
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+            // Refresh user tile "isRecent" state periodically
+            if engine.latestUserMessageTime != nil {
+                userTileTick.toggle()
+            }
+        }
+        .onKeyPress(.space) {
+            if engine.phase == .idle { engine.start() } else { engine.togglePause() }
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            engine.skipCurrentLine()
+            return .handled
+        }
     }
 
     // MARK: - Top Bar
@@ -229,22 +243,107 @@ struct WidgetView: View {
     // MARK: - Video Tiles
 
     private var videoTiles: some View {
-        HStack(spacing: 2) {
-            if engine.config.characters.count >= 2 {
-                characterTile(
-                    char: engine.config.characters[0],
-                    index: 0,
-                    isSpeaking: engine.currentSpeaker == 0
-                )
-                characterTile(
-                    char: engine.config.characters[1],
-                    index: 1,
-                    isSpeaking: engine.currentSpeaker == 1
-                )
+        ZStack(alignment: .bottomTrailing) {
+            // Two main character tiles
+            HStack(spacing: 2) {
+                if engine.config.characters.count >= 2 {
+                    characterTile(
+                        char: engine.config.characters[0],
+                        index: 0,
+                        isSpeaking: engine.currentSpeaker == 0
+                    )
+                    characterTile(
+                        char: engine.config.characters[1],
+                        index: 1,
+                        isSpeaking: engine.currentSpeaker == 1
+                    )
+                }
             }
+
+            // "You (Richard)" — small floating card, bottom-right
+            userTile
+                .frame(width: 64, height: 48)
+                .padding(4)
         }
         .padding(.horizontal, 2)
         .padding(.vertical, 2)
+    }
+
+    // MARK: - User Tile ("Richard")
+
+    // Timer to refresh user tile "isRecent" state
+    @State private var userTileTick = false
+
+    private var userTile: some View {
+        // userTileTick forces SwiftUI to re-evaluate isRecent when the timer fires
+        let _ = userTileTick
+        let isRecent: Bool = {
+            guard let time = engine.latestUserMessageTime else { return false }
+            return Date().timeIntervalSince(time) < 8
+        }()
+
+        return ZStack(alignment: .bottom) {
+            // Background — avatar or fallback gradient
+            if let path = TheaterConfig.userAvatarPath, let image = NSImage(contentsOfFile: path) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                LinearGradient(
+                    colors: [Color(hex: 0x1a1020), Color(hex: 0x261430)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .overlay(
+                    Text("R")
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.06))
+                )
+            }
+
+            // Bottom bar — name + mic
+            HStack(spacing: 3) {
+                if isRecent {
+                    HStack(spacing: 1) {
+                        ForEach(0..<3, id: \.self) { i in
+                            SoundBar(index: i, isActive: true, color: .white)
+                        }
+                    }
+                    .frame(width: 10, height: 8)
+                } else {
+                    Image(systemName: "mic.slash.fill")
+                        .font(.system(size: 6))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+
+                Text("You")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 3)
+            .background(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.8), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(
+                    isRecent ? Color.purple.opacity(0.6) : .clear,
+                    lineWidth: isRecent ? 1.5 : 0
+                )
+        )
+        .animation(.easeInOut(duration: 0.3), value: isRecent)
     }
 
     private func characterTile(char: CharacterConfig, index: Int, isSpeaking: Bool) -> some View {
@@ -339,7 +438,7 @@ struct WidgetView: View {
                         Text(line.text)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(2)
+                            .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
@@ -358,14 +457,38 @@ struct WidgetView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 10)
+            } else if engine.needsSetup {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.yellow.opacity(0.8))
+                    Text(engine.config.llmProvider == .groq
+                        ? "Add your Groq API key in Settings to get started"
+                        : "Ollama not reachable — run 'ollama serve' first")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.5))
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+            } else if engine.watcher.availableSessions.isEmpty && engine.phase == .idle {
+                HStack(spacing: 6) {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.2))
+                    Text("No Claude Code sessions found. Start one to begin.")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
             } else {
                 HStack(spacing: 6) {
                     Image(systemName: "waveform")
                         .font(.system(size: 10))
                         .foregroundStyle(.white.opacity(0.15))
-                    Text(engine.phase == .idle ? "Ready" : engine.phase.rawValue)
+                    Text(engine.isPaused ? "Paused" : (engine.phase == .idle ? "Ready" : engine.phase.rawValue))
                         .font(.system(size: 10))
-                        .foregroundStyle(.white.opacity(0.3))
+                        .foregroundStyle(engine.isPaused ? .yellow.opacity(0.6) : .white.opacity(0.3))
                     Spacer()
                 }
                 .padding(.horizontal, 10)
@@ -386,22 +509,32 @@ struct WidgetView: View {
                 if engine.phase == .idle { engine.start() } else { engine.stop() }
             }
 
+            // Pause / Resume
+            toolbarButton(
+                icon: engine.isPaused ? "play.fill" : "pause.fill",
+                label: engine.isPaused ? "Resume" : "Pause",
+                accent: engine.isPaused ? .yellow : .white
+            ) {
+                engine.togglePause()
+            }
+            .opacity(engine.phase == .idle ? 0.3 : 1.0)
+
             // Skip
             toolbarButton(icon: "forward.fill", label: "Skip", accent: .white) {
                 engine.skipCurrentLine()
             }
             .opacity(engine.currentLine == nil ? 0.3 : 1.0)
 
-            // Refresh
-            toolbarButton(icon: "arrow.clockwise", label: "Restart", accent: .white) {
-                engine.stop()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { engine.start() }
+            // Volume
+            VStack(spacing: 2) {
+                Image(systemName: engine.config.masterVolume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.5))
+                Slider(value: Bindable(engine).config.masterVolume, in: 0...1)
+                    .frame(width: 40)
+                    .controlSize(.mini)
             }
-
-            // Demo
-            toolbarButton(icon: "play.rectangle.fill", label: "Demo", accent: .white) {
-                engine.demo()
-            }
+            .frame(width: 50)
 
             Spacer()
 

@@ -31,12 +31,53 @@ final class SessionWatcher {
         let sessionId: String
         let lastModified: Date
         let sizeKB: Int
+        let displayName: String
 
-        var displayName: String {
-            let clean = projectName
-                .replacingOccurrences(of: "-Users-sameeprehlan-", with: "")
-                .replacingOccurrences(of: "-", with: "/")
-            return clean.isEmpty ? sessionId.prefix(8).description : clean
+        /// Resolve an encoded Claude project dir name to a human-friendly project name.
+        /// Walks the filesystem to correctly handle folder names containing dashes or spaces.
+        static func resolveDisplayName(projectName: String, sessionId: String) -> String {
+            // Claude encodes "/Users/name/Documents/My Project" as "-Users-name-Documents-My-Project"
+            let stripped = projectName.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            guard !stripped.isEmpty else { return String(sessionId.prefix(8)) }
+
+            let parts = stripped.components(separatedBy: "-").filter { !$0.isEmpty }
+            let fm = FileManager.default
+            var resolved = ""
+
+            var i = 0
+            while i < parts.count {
+                // Try longest match first (handles folder names with dashes/spaces)
+                var matched = false
+                for len in stride(from: parts.count - i, through: 1, by: -1) {
+                    let slice = parts[i..<(i + len)]
+                    // Try dash-joined (e.g. "aria-chat")
+                    let withDashes = resolved + "/" + slice.joined(separator: "-")
+                    if fm.fileExists(atPath: withDashes) {
+                        resolved = withDashes
+                        i += len
+                        matched = true
+                        break
+                    }
+                    // Try space-joined (e.g. "Claude Code")
+                    if len > 1 {
+                        let withSpaces = resolved + "/" + slice.joined(separator: " ")
+                        if fm.fileExists(atPath: withSpaces) {
+                            resolved = withSpaces
+                            i += len
+                            matched = true
+                            break
+                        }
+                    }
+                }
+                if !matched {
+                    // Unresolvable segment — use remaining parts as-is
+                    let remaining = parts[i...].joined(separator: "-")
+                    return remaining.isEmpty ? String(sessionId.prefix(8)) : remaining
+                }
+            }
+
+            let name = URL(fileURLWithPath: resolved).lastPathComponent
+            return name.isEmpty ? String(sessionId.prefix(8)) : name
         }
     }
 
@@ -178,7 +219,8 @@ final class SessionWatcher {
                 projectName: projectName,
                 sessionId: sessionId,
                 lastModified: modDate,
-                sizeKB: size / 1024
+                sizeKB: size / 1024,
+                displayName: SessionInfo.resolveDisplayName(projectName: projectName, sessionId: sessionId)
             ))
         }
 
@@ -228,8 +270,32 @@ final class SessionWatcher {
         guard let handle = FileHandle(forReadingAtPath: path) else { return }
         self.fileHandle = handle
 
-        // Seek to end — we only want new events
-        handle.seekToEndOfFile()
+        // Read the last ~8KB to pick up recent events for immediate context,
+        // then continue tailing from the end for new events.
+        let fileEnd = handle.seekToEndOfFile()
+        let readBackBytes: UInt64 = 8192
+        let readFrom = fileEnd > readBackBytes ? fileEnd - readBackBytes : 0
+        handle.seek(toFileOffset: readFrom)
+        let recentData = handle.readDataToEndOfFile()
+
+        if !recentData.isEmpty, let text = String(data: recentData, encoding: .utf8) {
+            let lines = text.components(separatedBy: .newlines)
+            // Take only the last ~10 events to avoid flooding
+            let recentLines = lines.suffix(12)
+            var parsed = 0
+            for line in recentLines {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                if let event = SessionEventParser.parse(line: trimmed) {
+                    parsed += 1
+                    eventCount += 1
+                    continuation?.yield(event)
+                }
+            }
+            if parsed > 0 {
+                debugLog("[Watcher] Replayed \(parsed) recent events from session")
+            }
+        }
 
         let fd = handle.fileDescriptor
         let source = DispatchSource.makeFileSystemObjectSource(

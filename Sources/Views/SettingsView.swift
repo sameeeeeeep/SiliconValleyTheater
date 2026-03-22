@@ -280,10 +280,20 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Audio") {
+                HStack {
+                    Text("Master Volume")
+                    Slider(value: $editingConfig.masterVolume, in: 0...1.0, step: 0.05)
+                    Text(String(format: "%d%%", Int(editingConfig.masterVolume * 100)))
+                        .monospacedDigit()
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+
             Section("Buffering") {
                 HStack {
                     Text("Buffer Duration")
-                    Slider(value: $editingConfig.bufferDuration, in: 3...30, step: 1)
+                    Slider(value: $editingConfig.bufferDuration, in: 5...120, step: 5)
                     Text("\(Int(editingConfig.bufferDuration))s")
                         .monospacedDigit()
                 }

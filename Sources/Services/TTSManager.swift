@@ -42,8 +42,9 @@ final class TTSManager {
         // Find server.py + venv relative to the app bundle
         let bundlePath = Bundle.main.bundlePath
         let sidecarDir: String
-        if bundlePath.contains("/build/") {
-            sidecarDir = bundlePath.components(separatedBy: "/build/").first! + "/TTSSidecar"
+        if bundlePath.contains("/build/"),
+           let base = bundlePath.components(separatedBy: "/build/").first {
+            sidecarDir = base + "/TTSSidecar"
         } else {
             sidecarDir = (bundlePath as NSString).deletingLastPathComponent + "/TTSSidecar"
         }
@@ -129,9 +130,14 @@ final class TTSManager {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (data, resp) = try await URLSession.shared.data(for: request)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard status == 200 else {
+                debugLog("[TTS] Synthesis failed (HTTP \(status)) for: \(text.prefix(40))")
+                return nil
+            }
             return data
         } catch {
+            debugLog("[TTS] Synthesis error: \(error.localizedDescription) for: \(text.prefix(40))")
             return nil
         }
     }
