@@ -1,89 +1,89 @@
-# 🎬 SiliconValley Theater
+# SiliconValley Theater
 
-### What do you do when Claude Code codes?
+**Live comedy commentary for your Claude Code sessions — voiced by TV characters.**
 
-You watch. But watching a terminal scroll is boring. What if your coding session had a **live director's commentary** — voiced by your favorite TV characters?
+You're coding. Claude Code is doing its thing. But instead of watching a terminal scroll in silence, Gilfoyle and Dinesh are roasting your variable names. David Rose is having a breakdown about your merge conflicts. Moira is calling the codebase "bébé."
 
-SiliconValley Theater turns your Claude Code sessions into a **live comedy show**. Gilfoyle roasts your variable names while Dinesh nervously defends your architecture. Walter White narrates your refactor like it's a cook. Rick burps through your deployment.
+100% local. Your code never leaves your machine.
 
-**100% local. Your code never leaves your machine.**
-
----
-
-## ✨ What Makes It Special
-
-🎭 **9 Character Themes** — Silicon Valley, Rick & Morty, Breaking Bad, The Office, Friends, Sherlock, Iron Man, Schitt's Creek, and a Professor/Student duo for learning
-
-🎤 **Local Voice Cloning** — Clone any voice from a 10-second sample using [Pocket TTS](https://github.com/kyutai-labs/pocket-tts). Runs on-device via Apple MLX
-
-🧠 **Smart Event Understanding** — Doesn't just read file names. Explains *what happened and why it matters* using everyday analogies
-
-🎓 **Technical Explainers** — Detects terms like "cache", "API", "JWT" in your session and plays fun explainer segments ("Caching is like keeping pizza in the fridge instead of calling the pizza place every night")
-
-📺 **Zoom-Style Widget** — Floating video call layout with two character tiles, subtitles, speaker highlighting, and a Zoom-style control bar
-
-🏠 **Multi-Room Sessions** — Monitor multiple Claude Code sessions simultaneously. Each "room" gets its own character theme. Switch between rooms like Zoom breakout rooms
-
-🔄 **Zero-Gap Playback** — Pre-written filler banter plays during LLM generation gaps. Voice-cached to disk — after first play, fillers are instant (zero compute)
-
-🎬 **Dynamic Intros** — Characters "join a call" at startup, discuss your project by name, react to your first message — all while the LLM warms up in the background
+https://github.com/user-attachments/assets/demo-placeholder
 
 ---
 
-## 🏗 Architecture
+## How It Works
+
+The app watches your Claude Code session in real time, understands what's happening (user questions, code changes, build results), and generates character dialogue that narrates the session — synthesized with cloned voices and played through a floating Zoom-style widget.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Claude Code Session                       │
-│              (JSONL at ~/.claude/projects/)                  │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-              ┌────────▼────────┐
-              │  Event Watcher  │  watches session files in real time
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  Summarizer     │  zero-latency string parsing
-              │  (no LLM)      │  "Tool: Bash npm test" → "Ran the test suite"
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  Dialogue Gen   │  Qwen 2.5 3B via Ollama (local)
-              │  + few-shot     │  character-specific examples per theme
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  Pocket TTS     │  local voice cloning on Apple Silicon
-              │  (MLX)          │  clone any voice from 10s sample
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  Audio Player   │  pipelined: synthesize N+1 while N plays
-              │  + Voice Cache  │  disk-persisted WAV cache for fillers
-              └─────────────────┘
+Claude Code session (JSONL) → Event watcher (kqueue, <1ms)
+    → Smart filter (keeps conversation, drops noise)
+    → LLM generates dialogue (Qwen 3B local or Groq 70B cloud)
+    → Voice synthesis (cloned voices via Pocket TTS)
+    → Pipelined playback (synthesize N+1 while N plays)
 ```
 
-### The Smart Playback Pipeline
-
-The app never sits silent. Here's how:
-
-1. **App starts** → Pre-written "joining the call" intro plays (voice-cached, instant)
-2. **During intro** → LLM generates context discussion from your project name + first message
-3. **Intro ends** → Context discussion plays seamlessly
-4. **Real events buffer** → LLM generates commentary from 30s of accumulated events
-5. **Between batches** → Term-triggered explainer fillers play (cached, instant)
-6. **Idle periods** → Pre-written character banter fills gaps (cached, instant)
-
-Result: continuous dialogue with zero silence, even on an 8GB M1.
+The app never sits silent. Pre-written banter fills every gap. Voice-cached to disk — after first play, everything is instant.
 
 ---
 
-## 🚀 Quick Start
+## Zero-Latency Voice Cloning
+
+The key innovation. Voice cloning normally takes 2-30 seconds per phrase. We eliminated that:
+
+1. **Clone once** — extract voice state from a 10s WAV sample, save as `.safetensors` (~30s, one-time)
+2. **Load instantly** — cached voice state loads in <100ms on every subsequent run
+3. **Cache forever** — every synthesized phrase is saved to disk as WAV. Same phrase = 0ms next time
+4. **Pipeline** — synthesize line N+1 while line N plays. No gaps between dialogue lines
+
+After a few sessions, 90%+ of audio is pure disk reads. No compute. No latency.
+
+> This caching architecture is extracted as a standalone library: [InstaClone](https://github.com/sameeeeeeep/instaclone)
+
+---
+
+## Project-Aware Commentary with `theater.md`
+
+Drop a `.claude/theater.md` in your project and the app generates dialogue that knows your codebase:
+
+```bash
+# In any project, run:
+/create-theater
+```
+
+This generates a theme-specific config with:
+- **Project context** — what the project does, tech stack, key concepts
+- **Custom few-shot examples** — dialogue reacting to events that would actually happen in YOUR project
+- **Project-specific fillers** — banter about your actual tools, frameworks, and pain points
+- **Term explainers** — explains project-specific terms in character when detected
+
+The app uses **keyword-matched RAG** to pick the most relevant example for each event batch. The 3B model doesn't need to figure out your project — theater.md tells it.
+
+---
+
+## Character Themes
+
+| Theme | Characters | Vibe |
+|-------|-----------|------|
+| **Gilfoyle & Dinesh** | Silicon Valley | Dry roasts, Big Head stories, Erlich callbacks |
+| **David & Moira** | Schitt's Creek | Dramatic overreactions, elevated vocabulary, "ew David" |
+| **Rick & Morty** | Rick and Morty | Interdimensional incidents, *burp*, existential debugging |
+| **Sherlock & Watson** | Sherlock | Deductive reasoning, Watson translates to plain English |
+| **Chandler & Joey** | Friends | "Could this BE any more...", food references |
+| **Dwight & Jim** | The Office | Beet farm incidents, "FALSE.", looks at camera |
+| **Jesse & Walter** | Breaking Bad | "Yeah science!", purity obsession, no half measures |
+| **Tony & JARVIS** | Iron Man | Stark quips, probability calculations, 3 AM builds |
+| **Professor & Bug** | Original | Teaching mode — explains concepts for beginners |
+
+Each theme has full personality profiles, speech style rules, catchphrases, and incident-style few-shot examples. Characters tell stories ("remember when Big Head..."), not analogies ("it's like...").
+
+---
+
+## Quick Start
 
 ### Prerequisites
 - macOS 14+ (Apple Silicon)
-- [Ollama](https://ollama.com) with Qwen 2.5 3B: `ollama pull qwen2.5:3b`
-- Python 3.10+ (for TTS sidecar)
+- [Ollama](https://ollama.com) with Qwen 2.5: `ollama pull qwen2.5:3b`
+- Python 3.10+ (for voice cloning sidecar)
 
 ### Build & Run
 ```bash
@@ -94,107 +94,129 @@ open build/SiliconValleyTheater.app
 ```
 
 ### Voice Cloning Setup
-1. Install Pocket TTS: `cd TTSSidecar && python3 -m venv .venv && source .venv/bin/activate && pip install pocket-tts`
-2. Accept terms at [HuggingFace](https://huggingface.co/kyutai/pocket-tts) and `huggingface-cli login`
-3. Drop 10-15s WAV clips into `Resources/Voices/<theme>/` (e.g., `gilfoyle.wav`)
-4. The app clones voices automatically on startup
+```bash
+cd TTSSidecar
+python3 -m venv .venv && source .venv/bin/activate
+pip install pocket-tts
+```
+
+Drop 10-15s WAV clips into `Resources/Voices/<theme>/` (e.g., `David.wav`, `Moira.wav`). The app clones voices on first startup and caches them as `.safetensors` for instant loading thereafter.
+
+### Optional: Groq (faster, free)
+Get a free API key at [console.groq.com](https://console.groq.com). Set it in Settings. Uses Llama 3.3 70B — much better dialogue quality than local 3B.
 
 ---
 
-## 🎭 Character Themes
+## Architecture
 
-| Theme | Characters | Show | Vibe |
-|-------|-----------|------|------|
-| **Gilfoyle & Dinesh** | Bertram Gilfoyle, Dinesh Chugtai | Silicon Valley | Dry roasts, Erlich stories, Big Head references |
-| **Rick & Morty** | Rick Sanchez, Morty Smith | Rick and Morty | Interdimensional analogies, *burp*, existential debugging |
-| **Jesse & Walter** | Jesse Pinkman, Walter White | Breaking Bad | "Yeah science!", purity obsession, no half measures |
-| **Dwight & Jim** | Dwight Schrute, Jim Halpert | The Office | Beet farm analogies, looks at camera, "FALSE." |
-| **Chandler & Joey** | Chandler Bing, Joey Tribbiani | Friends | "Could this BE any more...", food analogies |
-| **Sherlock & Watson** | Sherlock Holmes, Dr. Watson | Sherlock | Deduction, "Elementary", Watson translates to plain English |
-| **Tony & JARVIS** | Tony Stark, JARVIS | Iron Man | Stark quips, probability calculations, 3 AM builds |
-| **David & Moira** | David Rose, Moira Rose | Schitt's Creek | Dramatic overreactions, elevated vocabulary, bébé |
-| **Professor & Bug** | Professor Pixel, Bug | Original | Teaching mode — explains concepts for beginners |
+```
+┌─────────────────────────────────────────────────────────┐
+│               Claude Code Session (JSONL)                │
+└────────────────────────┬────────────────────────────────┘
+                         │ kqueue (DispatchSource, <1ms)
+                ┌────────▼────────┐
+                │  SessionWatcher │  tails latest JSONL file
+                └────────┬────────┘
+                         │ AsyncStream<SessionEvent>
+                ┌────────▼────────┐
+                │ EventSummarizer │  filters noise, keeps conversation
+                │   (no LLM)     │  USER asks → CLAUDE responds → CHANGED files
+                └────────┬────────┘
+                         │ buffered 30s
+           ┌─────────────▼─────────────┐
+           │      TheaterEngine        │
+           │  ┌─────────────────────┐  │
+           │  │  theater.md (RAG)   │  │  keyword-matched project context
+           │  │  + few-shot example │  │  injected into every prompt
+           │  └─────────┬───────────┘  │
+           │  ┌─────────▼───────────┐  │
+           │  │   LLM Generation    │  │  Qwen 3B (local) / Llama 70B (Groq)
+           │  │   6 dialogue lines  │  │  incident-style, in character
+           │  └─────────┬───────────┘  │
+           │  ┌─────────▼───────────┐  │
+           │  │  Voice Synthesis    │  │  3-tier cache: phrase → disk → live
+           │  │  (Pocket TTS)       │  │  pipelined: N+1 while N plays
+           │  └─────────┬───────────┘  │
+           │  ┌─────────▼───────────┐  │
+           │  │  Gap Filling        │  │  DynamicFillerPool: consume & replenish
+           │  │  (never silent)     │  │  context-matched by event tags
+           │  └─────────────────────┘  │
+           └───────────────────────────┘
+                         │
+                ┌────────▼────────┐
+                │  Zoom Widget    │  floating panel, always-on-top
+                │  + Subtitles    │  speaker highlighting, sound bars
+                └─────────────────┘
+```
+
+### Why It's Never Silent
+
+| Phase | What Plays | Latency |
+|-------|-----------|---------|
+| App starts | Cold open intro (10 variations, consumed once each) | 0ms (voice cached) |
+| LLM warming up | Context discussion about your project | 0ms (cached) |
+| Events buffering | Filler banter (context-matched, from pool) | 0ms (cached) |
+| Events ready | LLM-generated dialogue (6 lines) | ~2-4s first line, 0ms pipelined |
+| Between batches | Term explainers or more fillers | 0ms (cached) |
+| Idle | LLM generates new fillers in background | pre-cached for next gap |
 
 ---
 
-## 🧠 Technical Explainer Fillers
+## Configuration
 
-When the app detects technical terms in your session, it plays contextual explainers:
+From the menu bar icon:
 
-| Term Detected | Analogy |
-|--------------|---------|
-| Cache | "Pizza in the fridge instead of calling every night" |
-| API | "A restaurant menu — you order, the kitchen delivers" |
-| Deploy | "Surgery on a patient who's still awake" |
-| Tests | "Spell-check for code" |
-| Refactor | "Reorganizing your closet" |
-| Database | "A filing cabinet with superpowers" |
-| Git | "A time machine for your code" |
-| Auth/JWT | "A wristband at a concert" |
-| Docker | "Shipping your code in a box with everything it needs" |
-| Kubernetes | "An air traffic controller for your containers" |
-| WebSocket | "A phone call — the line stays open both ways" |
-| Regex | "Super-powered Find and Replace written by a cat" |
-| CORS | "A nightclub with a very strict door policy" |
-| Serverless | "Hiring a chef only when you have dinner guests" |
-| TypeScript | "JavaScript but with a helmet on" |
+- **LLM**: Ollama (local) or Groq (cloud, free, faster)
+- **TTS**: Pocket TTS (local cloning), Kokoro (fast), Fish Audio (cloud), Cartesia (cloud)
+- **Theme**: 9 character themes, assignable per room
+- **Buffer**: How long to collect events before generating (5-120s)
+- **Volume**: Master volume + per-session control
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Sources/
 ├── Engine/
-│   ├── TheaterEngine.swift          # Core orchestrator — events → dialogue → speech
-│   └── DynamicFillerPool.swift      # Consume-and-replenish filler pool
+│   ├── TheaterEngine.swift          # Central orchestrator
+│   └── DynamicFillerPool.swift      # Consume-and-replenish banter pool
 ├── Models/
-│   ├── Config.swift                 # Settings, per-session theme map
-│   ├── CharacterTheme.swift         # 9 themes with few-shot examples
+│   ├── TheaterContext.swift         # theater.md parser + RAG
+│   ├── CharacterTheme.swift         # 9 themes with personalities + examples
 │   ├── FillerLibrary.swift          # Pre-written fillers + term explainers
+│   ├── Config.swift                 # Settings, per-session theme map
 │   ├── DialogueLine.swift           # Data models + dialogue parser
-│   └── SessionEvent.swift           # Claude Code JSONL event parser
+│   └── SessionEvent.swift           # JSONL event parser
 ├── Services/
 │   ├── DialogueGenerator.swift      # Event summarizer + LLM prompt builder
-│   ├── SessionWatcher.swift         # Watches Claude Code JSONL files
-│   ├── OllamaClient.swift           # Local LLM via Ollama
-│   ├── GroqClient.swift             # Cloud LLM via Groq
-│   ├── TTSManager.swift             # Pocket TTS / Kokoro sidecar
-│   ├── FishAudioTTSManager.swift    # Fish Audio cloud voice cloning
+│   ├── SessionWatcher.swift         # kqueue file watcher for JSONL
+│   ├── OllamaClient.swift           # Local LLM client
+│   ├── GroqClient.swift             # Cloud LLM client
+│   ├── TTSManager.swift             # Pocket TTS sidecar manager
+│   ├── FishAudioTTSManager.swift    # Fish Audio voice cloning
 │   ├── CloudTTSManager.swift        # Cartesia cloud TTS
 │   └── AudioPlayer.swift            # Pipelined audio playback
 ├── Views/
-│   ├── WidgetView.swift             # Zoom-style floating widget with rooms
-│   ├── VideoCallView.swift          # Full-size video call layout
-│   ├── ContentView.swift            # Main panel with transcript
-│   ├── CharacterPanelView.swift     # Character tile with speaking indicator
-│   ├── SubtitleOverlay.swift        # Floating dialogue subtitle
-│   ├── TranscriptView.swift         # Scrollable dialogue history
+│   ├── WidgetView.swift             # Zoom-style floating widget
+│   ├── VideoCallView.swift          # Character tiles + user tile
+│   ├── ContentView.swift            # Full window with transcript
+│   ├── CharacterPanelView.swift     # Character tile with sound bars
+│   ├── SubtitleOverlay.swift        # Floating dialogue captions
+│   ├── TranscriptView.swift         # Scrollable history
 │   └── SettingsView.swift           # Configuration UI
 └── SiliconValleyApp.swift           # Menu bar app entry point
 
-TTSSidecar/                          # Python sidecar for local TTS
-Resources/Voices/                    # Voice samples per theme
+TTSSidecar/                          # Python voice cloning sidecar
+Resources/Voices/                    # WAV samples per theme
 ```
 
 ---
 
-## 🔧 Configuration
-
-Access settings from the menu bar icon. Key options:
-
-- **LLM Provider**: Ollama (local) or Groq (cloud, faster)
-- **TTS Engine**: Pocket TTS (local cloning), Kokoro (fast local), Fish Audio (cloud cloning), Cartesia (cloud)
-- **Buffer Duration**: How long to collect events before generating (default: 30s)
-- **Theme**: Pick from 9 character themes
-- **Per-Room Themes**: Assign different themes to different sessions
-
----
-
-## 📄 License
+## License
 
 MIT
 
 ---
 
-*Built with Swift, MLX, Ollama, and an unhealthy obsession with making coding less boring.*
+*Built with Swift, MLX, Ollama, and the belief that coding should be more entertaining.*
