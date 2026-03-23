@@ -257,7 +257,9 @@ struct TheaterContext {
     // MARK: - RAG: keyword-matched context for prompts
 
     /// Pick the most relevant voice example based on event keywords.
-    /// Returns the best-matching example dialogue, or a random one if no keyword match.
+    /// Returns the best-matching example dialogue, or nil if no good match.
+    /// A random fallback would poison the prompt — e.g. a "build failed" example
+    /// when the actual build succeeded causes the model to mimic failure dialogue.
     func bestExample(forEvents eventSummary: String) -> String? {
         guard !voiceExamples.isEmpty else { return nil }
 
@@ -278,8 +280,10 @@ struct TheaterContext {
             }
         }
 
-        // If we found a match, use it; otherwise pick a random one
-        let chosen = bestExample ?? voiceExamples.randomElement()!
+        // Only use if we got a meaningful match (2+ keyword overlaps).
+        // No match → return nil, let the theme's hardcoded example be used instead.
+        // A random example would mislead the model (e.g. failure example on success events).
+        guard bestScore >= 2, let chosen = bestExample else { return nil }
         return chosen.dialogue
     }
 

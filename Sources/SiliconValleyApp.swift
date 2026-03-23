@@ -20,7 +20,7 @@ struct SiliconValleyApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
-        .defaultSize(width: 520, height: 280)
+        .defaultSize(width: 520, height: 310)
         .defaultPosition(.topTrailing)
 
         // Main window — full video call view (open from menu bar)

@@ -169,7 +169,13 @@ struct TheaterConfig: Codable {
         return nil
     }
 
-    /// Resolve the "Richard" (user) avatar.
+    /// Resolve the user's avatar based on the active theme's user character.
+    static func userAvatarPath(for theme: CharacterTheme?) -> String? {
+        let name = theme?.userCharacterName ?? "Richard"
+        return resolveAvatar(for: name.lowercased())
+    }
+
+    /// Fallback for backward compatibility.
     static var userAvatarPath: String? {
         resolveAvatar(for: "richard")
     }

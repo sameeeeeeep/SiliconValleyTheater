@@ -10,6 +10,8 @@ struct CharacterTheme: Codable, Identifiable, Hashable {
     var fewShotExample: String
     var characters: [CharacterConfig]
     var systemPrompt: String
+    /// The show character that represents the real user (e.g. "Richard" for SV, "Johnny" for Schitt's Creek).
+    var userCharacterName: String = "Richard"
     var isBuiltIn: Bool
 
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -137,6 +139,7 @@ enum BuiltInThemes {
         TONE: Like two coworkers on a video call tackling a shared to-do list, bickering the whole way.
         \(outputRules)
         """,
+        userCharacterName: "Richard",
         isBuiltIn: true
     )
 
@@ -219,6 +222,7 @@ enum BuiltInThemes {
         Both refer to actual filenames and commands from the events.
         \(outputRules)
         """,
+        userCharacterName: "Jerry",
         isBuiltIn: true
     )
 
@@ -294,6 +298,7 @@ enum BuiltInThemes {
         clarifying questions. Talk as if YOU are doing the work — 'I've just examined this file', etc.
         \(outputRules)
         """,
+        userCharacterName: "Lestrade",
         isBuiltIn: true
     )
 
@@ -359,6 +364,7 @@ enum BuiltInThemes {
         Talk as if YOU are doing the work together.
         \(outputRules)
         """,
+        userCharacterName: "Ross",
         isBuiltIn: true
     )
 
@@ -403,6 +409,7 @@ enum BuiltInThemes {
         doing with analogies. Bug asks beginner-friendly questions. Talk as if YOU are writing the code.
         \(outputRules)
         """,
+        userCharacterName: "The Student",
         isBuiltIn: true
     )
 
@@ -468,6 +475,7 @@ enum BuiltInThemes {
         YOU are doing the work — 'I just fixed that', 'Let me handle this module', etc.
         \(outputRules)
         """,
+        userCharacterName: "Michael",
         isBuiltIn: true
     )
 
@@ -534,6 +542,7 @@ enum BuiltInThemes {
         Keep it PG — Jesse says 'yo' a lot, no profanity.
         \(outputRules)
         """,
+        userCharacterName: "Hank",
         isBuiltIn: true
     )
 
@@ -599,6 +608,7 @@ enum BuiltInThemes {
         are doing the work — 'I'm wiring up this module', 'Sir, that endpoint needs auth', etc.
         \(outputRules)
         """,
+        userCharacterName: "Pepper",
         isBuiltIn: true
     )
     // MARK: - Schitt's Creek
@@ -609,13 +619,13 @@ enum BuiltInThemes {
         description: "A dramatic mother and her anxious son navigate code like a luxury lifestyle crisis",
         show: "Schitt's Creek",
         fewShotExample: """
-        EXAMPLE (event: Changed auth.swift — replacing cookies with JWT. Tests passed 12):
-        David: Okay, so we just ripped out the old login system and replaced it with something called JWT. I don't know what that stands for and I don't care, but it works now.
-        Moira: John Would Tremble. That's what it stands for, David. Because our previous authentication was a house of cards in a hurricane.
-        David: That's not what it stands for. But sure. The point is twelve tests passed.
-        Moira: Twelve! A dozen affirmations from the digital gods. Like twelve roses at a premiere.
-        David: It's a test suite, not a bouquet. But yes, nothing is broken, which for us is basically a miracle.
-        Moira: I shall alert the media. Or at minimum, update the changelog with appropriate gravitas.
+        EXAMPLE (event: Changed auth.swift, tests passed):
+        David: They just ripped out the cookie auth. Bold move.
+        Moira: Bold? It was a CONDEMNED structure, David.
+        David: Twelve tests passed though. That never happens for us.
+        Moira: Twelve! Like twelve roses at a premiere opening.
+        David: It's a test suite, not a bouquet.
+        Moira: I shall update the changelog with appropriate gravitas.
         """,
         characters: [
             CharacterConfig(
@@ -676,6 +686,7 @@ enum BuiltInThemes {
         - Technical concepts get explained through their dramatic overreactions
         \(outputRules)
         """,
+        userCharacterName: "Johnny",
         isBuiltIn: true
     )
 }

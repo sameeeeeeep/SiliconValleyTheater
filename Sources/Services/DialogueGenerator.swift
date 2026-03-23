@@ -31,8 +31,8 @@ enum EventSummarizer {
 
     /// Target max chars for the summary — leaves room for examples + instructions in the prompt.
     /// Qwen 2.5 3B context is 32K tokens. Our prompt is ~1500 chars of instructions/examples.
-    /// We want the summary to be rich but not overflow. 800 chars ≈ 200 tokens.
-    private static let maxSummaryChars = 800
+    /// We want the summary to be rich but not overflow. 1200 chars ≈ 300 tokens.
+    private static let maxSummaryChars = 1200
 
     static func summarize(events: [SessionEvent]) -> String {
         // WHAT MATTERS: the human-level conversation.
@@ -54,14 +54,19 @@ enum EventSummarizer {
                 lines.append("USER: \(text.prefix(250))")
 
             case .assistantText:
-                let text = event.detail
+                var text = event.detail
                     .replacingOccurrences(of: "Claude explains: ", with: "")
                     .replacingOccurrences(of: "Claude said: ", with: "")
                     .replacingOccurrences(of: "Claude: ", with: "")
+                // Strip markdown artifacts that waste summary budget
+                text = text.replacingOccurrences(of: "**", with: "")
+                    .replacingOccurrences(of: "##", with: "")
+                    .replacingOccurrences(of: "- ", with: "")
+                    .replacingOccurrences(of: "```", with: "")
                 if isNarration(text) { continue }
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).count < 10 { continue }
                 // Keep substantive messages — explanations, decisions, questions, plans
-                lines.append("CLAUDE: \(text.prefix(200))")
+                lines.append("ASSISTANT: \(text.prefix(250))")
 
             case .toolUse:
                 if d.contains("todowrite") || d.contains("todo") {
@@ -411,6 +416,47 @@ final class DialogueGenerator: Sendable {
         await client.isAvailable()
     }
 
+    /// Pick one concrete anchor topic from the summary for the 3B model to focus on.
+    /// Without this, it scatters across every detail and produces disconnected lines.
+    /// Returns a clean, natural description — not raw event labels like "RAN:" which confuse the model.
+    private func pickAnchor(from summary: String) -> String {
+        let lines = summary.components(separatedBy: .newlines).filter { !$0.isEmpty }
+
+        // Priority: errors > user messages > commands > file changes > fallback
+        // Strip the event label prefix so the model gets natural text
+        for line in lines {
+            if line.hasPrefix("FAILED:") {
+                return "a failure: " + String(line.dropFirst(7).trimmingCharacters(in: .whitespaces).prefix(60))
+            }
+        }
+        for line in lines {
+            if line.hasPrefix("USER:") {
+                return "the user saying: " + String(line.dropFirst(5).trimmingCharacters(in: .whitespaces).prefix(60))
+            }
+        }
+        for line in lines {
+            if line.hasPrefix("ASSISTANT:") {
+                return String(line.dropFirst(10).trimmingCharacters(in: .whitespaces).prefix(60))
+            }
+        }
+        for line in lines {
+            if line.hasPrefix("BUILD") || line.hasPrefix("TESTS") {
+                return String(line.prefix(60)).lowercased()
+            }
+        }
+        for line in lines {
+            if line.hasPrefix("RAN:") {
+                return "running: " + String(line.dropFirst(4).trimmingCharacters(in: .whitespaces).prefix(60))
+            }
+        }
+        for line in lines {
+            if line.hasPrefix("CHANGED:") {
+                return "changing " + String(line.dropFirst(8).trimmingCharacters(in: .whitespaces).prefix(60))
+            }
+        }
+        return "the latest code changes"
+    }
+
     // MARK: - Prompt Building (Few-shot, optimized for speed + quality)
 
     private func buildPrompt(events: [SessionEvent], config: TheaterConfig, theme: CharacterTheme? = nil, theaterContext: TheaterContext? = nil) -> String {
@@ -428,12 +474,12 @@ final class DialogueGenerator: Sendable {
         } else {
             example = theme?.fewShotExample ?? """
             EXAMPLE:
-            \(c0.name): We just ripped cookieStore.get out of auth.swift. Remember last time someone left session cookies in prod? Three-day outage.
-            \(c1.name): That was the intern. He stored sessions in a JSON file on the desktop. DESKTOP.
-            \(c0.name): jwt.verify is cleaner. Verify, decode, done. No database roundtrip. No desktop JSON files.
-            \(c1.name): Twelve tests passed. I once saw a team skip auth tests entirely. They got hacked on launch day.
-            \(c0.name): Classic. The CEO tweeted 'we take security seriously' while their admin password was 'password123.'
-            \(c1.name): Twelve for twelve. cookieStore is dead. I'm not writing the obituary though.
+            \(c0.name): They just swapped out the auth system. Brave.
+            \(c1.name): Brave? The old one was held together with tape.
+            \(c0.name): Twelve tests passed. That's suspicious.
+            \(c1.name): I once saw a build pass on Friday. Server died Monday.
+            \(c0.name): Classic. At least they checked before pushing.
+            \(c1.name): Progress. Actual progress. Mark the calendar.
             """
         }
 
@@ -445,23 +491,27 @@ final class DialogueGenerator: Sendable {
             projectLine = ""
         }
 
+        // Pick ONE concrete detail from the summary for the model to anchor on.
+        // This prevents the 3B model from scattering across unrelated topics.
+        let anchor = pickAnchor(from: summary)
+        let userName = theme?.userCharacterName ?? "Richard"
+
         return """
-        Write 6 lines of dialogue. \(c0.name) and \(c1.name) react to what JUST happened below.
+        \(c0.name) and \(c1.name) are watching \(userName) code. They're commentators, NOT coders.
         \(projectLine)
         RULES:
-        - Reference SPECIFIC details from the events: filenames, function names, commands, error messages
-        - The first line MUST mention something concrete from the summary (a file, a command, a change)
-        - DON'T use "it's like..." analogies — instead tell INCIDENTS: "this reminds me of the time when...", "remember when...", "I once saw..."
-        - React to each other, argue, one-up, take credit, assign blame
-        - Stay in character. Under 25 words each line
-        - Never say "Claude", never quote full file paths
+        - EVERY line must be part of ONE conversation about: \(anchor)
+        - They RESPOND to each other. Line 2 reacts to line 1. Line 3 reacts to line 2. And so on
+        - Max 20 words per line. Short and punchy
+        - No metaphors. No explaining code. Just react, argue, tell quick stories
+        - Never say "Claude". Refer to the user as \(userName)
 
         \(example)
 
-        NOW — here is the actual event log from the coding session:
+        EVENTS (what \(userName) is doing):
         \(summary)
 
-        React to these events. Tell the user what happened and why it matters. Write the dialogue:
+        The conversation is about \(anchor). \(c0.name) starts, \(c1.name) responds, they go back and forth:
         \(c0.name):
         \(c1.name):
         \(c0.name):
