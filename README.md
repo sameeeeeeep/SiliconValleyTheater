@@ -62,19 +62,19 @@ The app uses **keyword-matched RAG** to pick the most relevant example for each 
 
 ## Character Themes
 
-| Theme | Characters | Vibe |
-|-------|-----------|------|
-| **Gilfoyle & Dinesh** | Silicon Valley | Dry roasts, Big Head stories, Erlich callbacks |
-| **David & Moira** | Schitt's Creek | Dramatic overreactions, elevated vocabulary, "ew David" |
-| **Rick & Morty** | Rick and Morty | Interdimensional incidents, *burp*, existential debugging |
-| **Sherlock & Watson** | Sherlock | Deductive reasoning, Watson translates to plain English |
-| **Chandler & Joey** | Friends | "Could this BE any more...", food references |
-| **Dwight & Jim** | The Office | Beet farm incidents, "FALSE.", looks at camera |
-| **Jesse & Walter** | Breaking Bad | "Yeah science!", purity obsession, no half measures |
-| **Tony & JARVIS** | Iron Man | Stark quips, probability calculations, 3 AM builds |
-| **Professor & Bug** | Original | Teaching mode — explains concepts for beginners |
+| Theme | Show | You play as | Vibe |
+|-------|------|-------------|------|
+| **Gilfoyle & Dinesh** | Silicon Valley | Richard | Dry roasts, Big Head stories, Erlich callbacks |
+| **David & Moira** | Schitt's Creek | Johnny | Dramatic overreactions, elevated vocabulary, bébé |
+| **Rick & Morty** | Rick and Morty | Jerry | Interdimensional incidents, *burp*, existential debugging |
+| **Sherlock & Watson** | Sherlock | Lestrade | Deductive reasoning, Watson translates to plain English |
+| **Chandler & Joey** | Friends | Ross | "Could this BE any more...", food references |
+| **Dwight & Jim** | The Office | Michael | Beet farm incidents, "FALSE.", looks at camera |
+| **Jesse & Walter** | Breaking Bad | Hank | "Yeah science!", purity obsession, no half measures |
+| **Tony & JARVIS** | Iron Man | Pepper | Stark quips, probability calculations, 3 AM builds |
+| **Professor & Bug** | Original | The Student | Teaching mode — explains concepts for beginners |
 
-Each theme has full personality profiles, speech style rules, catchphrases, and incident-style few-shot examples. Characters tell stories ("remember when Big Head..."), not analogies ("it's like...").
+You always appear in the widget as "You (CharacterName)". Each theme has full personality profiles, speech style rules, catchphrases, and incident-style few-shot examples. Characters tell stories ("remember when Big Head..."), not analogies ("it's like...").
 
 ---
 
