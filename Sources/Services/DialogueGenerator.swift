@@ -31,8 +31,9 @@ enum EventSummarizer {
 
     /// Target max chars for the summary — leaves room for examples + instructions in the prompt.
     /// Qwen 2.5 3B context is 32K tokens. Our prompt is ~1500 chars of instructions/examples.
-    /// We want the summary to be rich but not overflow. 1200 chars ≈ 300 tokens.
-    private static let maxSummaryChars = 1200
+    /// We want the summary to be rich but not overflow. 1800 chars ≈ 450 tokens.
+    /// Increased from 1200 to preserve assistant explanations which are the key to ELI5 dialogue.
+    private static let maxSummaryChars = 1800
 
     static func summarize(events: [SessionEvent]) -> String {
         // WHAT MATTERS: the human-level conversation.
@@ -79,7 +80,13 @@ enum EventSummarizer {
                     lines.append("PLANNING: Designing the implementation approach before writing code")
                 } else if d.contains("edit") || d.contains("writing") || d.contains("replacing") {
                     let file = shortFileName(from: event.detail)
-                    lines.append("CHANGED: \(file)")
+                    // Include what was changed — the detail often has old/new strings
+                    let changeDesc = extractChange(from: event.detail)
+                    if !changeDesc.isEmpty {
+                        lines.append("CHANGED: \(file) — \(changeDesc)")
+                    } else {
+                        lines.append("CHANGED: \(file)")
+                    }
                 } else if d.contains("bash") || d.contains("command") || d.contains("running") {
                     let raw = extractCommand(from: event.detail)
                     let lower = raw.lowercased()
@@ -496,28 +503,97 @@ final class DialogueGenerator: Sendable {
         let anchor = pickAnchor(from: summary)
         let userName = theme?.userCharacterName ?? "Richard"
 
+        // Seed 2-3 lines that convey the situation accurately.
+        // The 3B model only needs to continue with reactions and stories.
+        let seedLines = buildSeedLines(from: summary, anchor: anchor, c0: c0, c1: c1, userName: userName)
+        let seedCount = seedLines.components(separatedBy: .newlines).count
+        // Generate enough continuation lines to reach 6 total
+        let continuationCount = max(3, 6 - seedCount)
+        var continuationTemplate = ""
+        for i in 0..<continuationCount {
+            let char = (i % 2 == 0) ? ((seedCount % 2 == 0) ? c0.name : c1.name) : ((seedCount % 2 == 0) ? c1.name : c0.name)
+            continuationTemplate += "\(char):\n"
+        }
+
         return """
-        \(c0.name) and \(c1.name) are watching \(userName) code. They're commentators, NOT coders.
+        \(c0.name) and \(c1.name) are working on a project together. They talk as if THEY are doing the work.
         \(projectLine)
         RULES:
-        - EVERY line must be part of ONE conversation about: \(anchor)
-        - They RESPOND to each other. Line 2 reacts to line 1. Line 3 reacts to line 2. And so on
+        - Continue the conversation below. Write \(continuationCount) more lines
+        - They RESPOND to each other. Each line reacts to the previous one
         - Max 20 words per line. Short and punchy
-        - No metaphors. No explaining code. Just react, argue, tell quick stories
-        - Never say "Claude". Refer to the user as \(userName)
+        - Talk about what you DID and WHY. Tell quick stories from past experience
+        - Never say "Claude". The developer is called \(userName)
 
         \(example)
 
-        EVENTS (what \(userName) is doing):
+        WHAT HAPPENED:
         \(summary)
 
-        The conversation is about \(anchor). \(c0.name) starts, \(c1.name) responds, they go back and forth:
-        \(c0.name):
-        \(c1.name):
-        \(c0.name):
-        \(c1.name):
-        \(c0.name):
-        \(c1.name):
+        Continue this conversation about \(anchor):
+        \(seedLines)
+        \(continuationTemplate)
         """
+    }
+
+    /// Build 2-3 seed lines from the summary so the 3B model starts strong.
+    /// The model is much better at continuing good lines than writing from scratch.
+    /// We do the "understanding" work here; the model just adds character reactions.
+    private func buildSeedLines(from summary: String, anchor: String, c0: CharacterConfig, c1: CharacterConfig, userName: String) -> String {
+        let lines = summary.components(separatedBy: .newlines).filter { !$0.isEmpty }
+
+        // Extract key pieces from the summary
+        var userAsk: String?
+        var assistantExplanation: String?
+        var change: String?
+        var outcome: String?
+
+        for line in lines {
+            if line.hasPrefix("USER:") && userAsk == nil {
+                userAsk = String(line.dropFirst(5).trimmingCharacters(in: .whitespaces).prefix(80))
+            } else if line.hasPrefix("ASSISTANT:") && assistantExplanation == nil {
+                assistantExplanation = String(line.dropFirst(10).trimmingCharacters(in: .whitespaces).prefix(120))
+            } else if line.hasPrefix("CHANGED:") && change == nil {
+                change = String(line.dropFirst(8).trimmingCharacters(in: .whitespaces).prefix(80))
+            } else if line.hasPrefix("FAILED:") {
+                outcome = "FAILED: " + String(line.dropFirst(7).trimmingCharacters(in: .whitespaces).prefix(60))
+            } else if line.hasPrefix("TESTS PASSED") || line.hasPrefix("BUILD SUCCEEDED") {
+                outcome = line
+            }
+        }
+
+        // Build 2-3 seed lines that convey the situation accurately.
+        // The 3B model only needs to continue with reactions and stories.
+        var seeds: [String] = []
+
+        if let ask = userAsk {
+            seeds.append("\(c0.name): \(userName) asked us to \(ask.lowercased()). Okay. Let's deal with this.")
+        }
+
+        if let explanation = assistantExplanation {
+            // c1 explains what the problem/solution was — this is the ELI5 core
+            // Prefix with character voice so it doesn't sound like raw assistant text
+            seeds.append("\(c1.name): So the problem was — \(explanation)")
+        } else if let ch = change {
+            seeds.append("\(c1.name): We changed \(ch). That should sort it out.")
+        }
+
+        if let result = outcome {
+            if result.hasPrefix("FAILED") {
+                let detail = String(result.dropFirst(8).prefix(50))
+                seeds.append("\(c0.name): And it FAILED. \(detail). I don't love that.")
+            } else if result.contains("PASSED") {
+                seeds.append("\(c0.name): And it passed. Everything passed. I don't trust it but it passed.")
+            } else if result.contains("SUCCEEDED") {
+                seeds.append("\(c0.name): Build went through. No errors. Suspicious but I'll take it.")
+            }
+        }
+
+        // Fallback if we couldn't extract anything meaningful
+        if seeds.isEmpty {
+            seeds.append("\(c0.name): Okay so \(anchor) and I have thoughts about this.")
+        }
+
+        return seeds.joined(separator: "\n")
     }
 }
