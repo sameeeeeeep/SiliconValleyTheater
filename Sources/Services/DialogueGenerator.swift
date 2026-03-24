@@ -506,34 +506,62 @@ final class DialogueGenerator: Sendable {
         // Seed 2-3 lines that convey the situation accurately.
         // The 3B model only needs to continue with reactions and stories.
         let seedLines = buildSeedLines(from: summary, anchor: anchor, c0: c0, c1: c1, userName: userName)
-        let seedCount = seedLines.components(separatedBy: .newlines).count
-        // Generate enough continuation lines to reach 6 total
-        let continuationCount = max(3, 6 - seedCount)
-        var continuationTemplate = ""
-        for i in 0..<continuationCount {
-            let char = (i % 2 == 0) ? ((seedCount % 2 == 0) ? c0.name : c1.name) : ((seedCount % 2 == 0) ? c1.name : c0.name)
-            continuationTemplate += "\(char):\n"
+        let hasSeeds = !seedLines.isEmpty
+
+        if hasSeeds {
+            let seedCount = seedLines.components(separatedBy: .newlines).count
+            let continuationCount = max(3, 6 - seedCount)
+            var continuationTemplate = ""
+            for i in 0..<continuationCount {
+                let char = (i % 2 == 0) ? ((seedCount % 2 == 0) ? c0.name : c1.name) : ((seedCount % 2 == 0) ? c1.name : c0.name)
+                continuationTemplate += "\(char):\n"
+            }
+
+            return """
+            \(c0.name) and \(c1.name) are working on a project together. They talk as if THEY are doing the work.
+            \(projectLine)
+            RULES:
+            - Continue the conversation below. Write \(continuationCount) more lines
+            - They RESPOND to each other. Each line reacts to the previous one
+            - Max 20 words per line. Short and punchy
+            - Talk about what you DID and WHY. Tell quick stories from past experience
+            - Never say "Claude". The developer is called \(userName)
+
+            \(example)
+
+            WHAT HAPPENED:
+            \(summary)
+
+            Continue this conversation about \(anchor):
+            \(seedLines)
+            \(continuationTemplate)
+            """
+        } else {
+            // No clean seed lines — let the example carry and ask model to write all 6
+            return """
+            \(c0.name) and \(c1.name) are working on a project together. They talk as if THEY are doing the work.
+            \(projectLine)
+            RULES:
+            - Write 6 lines about what just happened. \(c0.name) and \(c1.name) alternate
+            - They RESPOND to each other. Each line reacts to the previous one
+            - Max 20 words per line. Short and punchy
+            - Talk about what you DID and WHY. Tell quick stories from past experience
+            - Never say "Claude". The developer is called \(userName)
+
+            \(example)
+
+            WHAT HAPPENED:
+            \(summary)
+
+            Write about \(anchor):
+            \(c0.name):
+            \(c1.name):
+            \(c0.name):
+            \(c1.name):
+            \(c0.name):
+            \(c1.name):
+            """
         }
-
-        return """
-        \(c0.name) and \(c1.name) are working on a project together. They talk as if THEY are doing the work.
-        \(projectLine)
-        RULES:
-        - Continue the conversation below. Write \(continuationCount) more lines
-        - They RESPOND to each other. Each line reacts to the previous one
-        - Max 20 words per line. Short and punchy
-        - Talk about what you DID and WHY. Tell quick stories from past experience
-        - Never say "Claude". The developer is called \(userName)
-
-        \(example)
-
-        WHAT HAPPENED:
-        \(summary)
-
-        Continue this conversation about \(anchor):
-        \(seedLines)
-        \(continuationTemplate)
-        """
     }
 
     /// Build 2-3 seed lines from the summary so the 3B model starts strong.
@@ -548,17 +576,20 @@ final class DialogueGenerator: Sendable {
         var change: String?
         var outcome: String?
 
-        // Collect all assistant lines and pick the longest/most substantive one.
-        // Short ones like "Sure, let me check" are filler — the long ones are explanations.
+        // Collect assistant lines, filtering out meta-conversation and debug output.
         var assistantCandidates: [String] = []
 
         for line in lines {
             if line.hasPrefix("USER:") && userAsk == nil {
-                userAsk = String(line.dropFirst(5).trimmingCharacters(in: .whitespaces).prefix(80))
+                let text = String(line.dropFirst(5).trimmingCharacters(in: .whitespaces))
+                // Skip meta-conversation about the app itself
+                if !Self.isMetaConversation(text) {
+                    userAsk = String(text.prefix(80))
+                }
             } else if line.hasPrefix("ASSISTANT:") {
                 let text = String(line.dropFirst(10).trimmingCharacters(in: .whitespaces))
-                // Skip short narration-like responses
-                if text.count > 40 {
+                // Only keep genuine technical explanations, not meta/debug text
+                if text.count > 40 && Self.isTechnicalExplanation(text) {
                     assistantCandidates.append(text)
                 }
             } else if line.hasPrefix("CHANGED:") && change == nil {
@@ -570,23 +601,22 @@ final class DialogueGenerator: Sendable {
             }
         }
 
-        // Pick the longest assistant explanation — that's the one with real content
+        // Pick the best assistant explanation — longest one that passes our filters
         assistantExplanation = assistantCandidates.max(by: { $0.count < $1.count }).map { String($0.prefix(120)) }
 
         // Build 2-3 seed lines that convey the situation accurately.
-        // The 3B model only needs to continue with reactions and stories.
         var seeds: [String] = []
 
+        // Only seed user ask if it's a clear technical request
         if let ask = userAsk {
-            seeds.append("\(c0.name): \(userName) asked us to \(ask.lowercased()). Okay. Let's deal with this.")
+            seeds.append("\(c0.name): \(userName) wants us to \(ask.lowercased().trimmingCharacters(in: .punctuationCharacters)). On it.")
         }
 
         if let explanation = assistantExplanation {
-            // c1 explains what the problem/solution was — this is the ELI5 core
-            // Prefix with character voice so it doesn't sound like raw assistant text
-            seeds.append("\(c1.name): So the problem was — \(explanation)")
+            // This is the ELI5 core — Claude's actual explanation of what happened
+            seeds.append("\(c1.name): So what happened was — \(explanation)")
         } else if let ch = change {
-            seeds.append("\(c1.name): We changed \(ch). That should sort it out.")
+            seeds.append("\(c1.name): We just changed \(ch).")
         }
 
         if let result = outcome {
@@ -594,17 +624,70 @@ final class DialogueGenerator: Sendable {
                 let detail = String(result.dropFirst(8).prefix(50))
                 seeds.append("\(c0.name): And it FAILED. \(detail). I don't love that.")
             } else if result.contains("PASSED") {
-                seeds.append("\(c0.name): And it passed. Everything passed. I don't trust it but it passed.")
+                seeds.append("\(c0.name): And it passed. All of it. I don't trust it but it passed.")
             } else if result.contains("SUCCEEDED") {
                 seeds.append("\(c0.name): Build went through. No errors. Suspicious but I'll take it.")
             }
         }
 
-        // Fallback if we couldn't extract anything meaningful
+        // Fallback — don't seed garbage, just let the example carry
         if seeds.isEmpty {
-            seeds.append("\(c0.name): Okay so \(anchor) and I have thoughts about this.")
+            return ""
         }
 
         return seeds.joined(separator: "\n")
+    }
+
+    /// Detect meta-conversation about the app/tool itself vs actual coding requests.
+    /// Meta: "why is cache repeating", "the voices are wrong", "check the logs"
+    /// Real: "fix the opacity", "add JWT auth", "refactor the pipeline"
+    private static func isMetaConversation(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let metaPatterns = [
+            "why is it", "why did it", "check the log", "what does it",
+            "the voices", "its saying", "it's saying", "are we not",
+            "can you add", "can we ensure", "i feel you", "also i",
+            "irrespective", "how are we", "what architecture",
+            "is this explaining", "also check", "also with",
+            "lets test", "let's test", "open app", "reopen",
+            "screwed something", "not working", "broken",
+        ]
+        return metaPatterns.contains(where: { lower.contains($0) })
+    }
+
+    /// Check if assistant text is a genuine technical explanation vs debug/meta output.
+    /// Good: "the clip-path crops to the left half but we're sampling from the wrong side"
+    /// Bad: "Found it. At 10:28:55 it played a static filler", "Let me check the logs"
+    private static func isTechnicalExplanation(_ text: String) -> Bool {
+        let lower = text.lowercased()
+
+        // Reject: debug output, log references, timestamps, meta-responses
+        let rejectPatterns = [
+            "let me check", "let me look", "let me see", "let me test",
+            "here's what", "i can see", "i see the",
+            "found it", "looking at", "checking",
+            "10:", "11:", "12:", "1:", "2:", "3:", "4:", "5:", "6:", "7:", "8:", "9:",  // timestamps
+            "debug.log", "grep", "tail -", "head -",
+            "`", "```",  // code blocks
+            "the logs show", "the log says", "in the logs",
+            "you're right", "good point", "fair point",
+            "yeah", "hmm", "okay so the", "sure,",
+        ]
+        if rejectPatterns.contains(where: { lower.contains($0) }) { return false }
+
+        // Accept: text that explains what/why/how about code
+        let acceptPatterns = [
+            "because", "the problem", "the issue", "the fix",
+            "instead of", "replacing", "changed", "updated", "added", "removed",
+            "this means", "so that", "which means",
+            "the function", "the file", "the class", "the method",
+            "we need to", "this will", "now it",
+            "was missing", "was wrong", "was broken",
+            "imports", "framework", "module", "component",
+        ]
+        if acceptPatterns.contains(where: { lower.contains($0) }) { return true }
+
+        // Default: accept if long enough (likely substantive)
+        return text.count > 80
     }
 }
