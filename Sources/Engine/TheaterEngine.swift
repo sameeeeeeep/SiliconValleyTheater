@@ -669,11 +669,33 @@ final class TheaterEngine {
         }
 
         // === PHASE 1: "Joining the call" intro (consume-and-discard, voice-cached) ===
-        // Seed intro pool if empty
+        // Prefer theater.md cold opens (theme-specific), fall back to generic intros
         if introPool.isEmpty {
-            introPool = Self.makeIntroPool(projectHint: projectHint)
+            if let ctx = theaterContext, !ctx.coldOpens.isEmpty {
+                // Use theater.md cold opens — these are theme-specific (David/Moira, Gilfoyle/Dinesh, etc.)
+                // Parse "CharName: text" lines from the raw dialogue string
+                let names = config.characters.map(\.name)
+                introPool = ctx.coldOpens.compactMap { open in
+                    let lines = open.dialogue.components(separatedBy: .newlines)
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    let parsed: [(Int, String)] = lines.compactMap { line in
+                        for (i, name) in names.enumerated() {
+                            if line.hasPrefix("\(name):") {
+                                let text = String(line.dropFirst(name.count + 1)).trimmingCharacters(in: .whitespaces)
+                                return (i, text)
+                            }
+                        }
+                        return nil
+                    }
+                    return parsed.count >= 3 ? parsed : nil
+                }
+                debugLog("[Theater] Seeded intro pool from theater.md (\(introPool.count) cold opens)")
+            } else {
+                introPool = Self.makeIntroPool(projectHint: projectHint)
+                debugLog("[Theater] Seeded intro pool from hardcoded intros (\(introPool.count) variations)")
+            }
             introPool.shuffle()
-            debugLog("[Theater] Seeded intro pool with \(introPool.count) variations")
         }
 
         // === PHASE 2: Fire off LLM with first user message during intro playback ===

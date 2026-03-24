@@ -460,7 +460,7 @@ struct WidgetView: View {
             if let line = engine.currentLine {
                 let idx = min(line.characterIndex, engine.config.characters.count - 1)
                 let char = engine.config.characters[idx]
-                let accent: Color = line.characterIndex == 0 ? .cyan : .green
+                let accent: Color = line.isFiller ? .yellow : (line.characterIndex == 0 ? .cyan : .green)
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
