@@ -133,21 +133,16 @@ final class DynamicFillerPool {
         var tags = Set<String>()
 
         let tagKeywords: [String: [String]] = [
-            "git": ["git", "commit", "branch", "merge", "push", "pull", "rebase", "checkout"],
-            "deploy": ["deploy", "production", "ship", "release", "build"],
-            "test": ["test", "spec", "assert", "expect", "passed", "failed", "coverage"],
-            "debug": ["debug", "error", "bug", "fix", "crash", "exception", "trace"],
+            "git": ["git", "commit", "branch", "push", "pull", "checkout"],
+            "merge": ["merge", "rebase", "conflict"],
+            "deploy": ["deploy", "production", "ship", "release"],
             "refactor": ["refactor", "rename", "cleanup", "restructure", "reorganize"],
             "edit": ["edit", "editing", "write", "writing", "modify"],
             "file": ["read", "file", "open", "reading"],
             "search": ["search", "grep", "find", "glob", "pattern"],
-            "build": ["build", "compile", "npm", "yarn", "swift", "cargo", "make"],
             "server": ["server", "docker", "container", "port", "localhost"],
             "coding": ["function", "class", "method", "variable", "import", "module"],
-            "ci": ["ci", "pipeline", "actions", "jenkins", "workflow"],
-            "code-review": ["review", "pr", "pull request", "approve"],
             "infrastructure": ["config", "env", "yaml", "json", "settings"],
-            "bugs": ["bug", "issue", "broken", "wrong", "unexpected"],
             "legacy": ["legacy", "deprecated", "old", "migrate", "upgrade"],
             "cleanup": ["clean", "remove", "delete", "unused", "dead code"],
         ]
@@ -157,6 +152,48 @@ final class DynamicFillerPool {
                 tags.insert(tag)
             }
         }
+
+        // Sentiment-aware tags: distinguish success from failure
+        let hasSuccess = text.contains("succeed") || text.contains("success") || text.contains("passed")
+            || text.contains("no error") || text.contains("built:") || text.contains("built ")
+            || text.contains("compiled") || text.contains("all passed") || text.contains("no failures")
+        let hasFailure = text.contains("fail") || text.contains("error") || text.contains("crash")
+            || text.contains("broken") || text.contains("exception") || text.contains("undefined")
+            || text.contains("bug") || text.contains("wrong")
+
+        // Build outcome
+        if text.contains("build") || text.contains("compile") || text.contains("make") {
+            if hasFailure && !hasSuccess {
+                tags.insert("build-fail")
+            } else if hasSuccess && !hasFailure {
+                tags.insert("build-success")
+                tags.insert("built")
+            } else {
+                tags.insert("build") // ambiguous — won't match build-fail or build-success
+            }
+        }
+
+        // Test outcome
+        if text.contains("test") || text.contains("spec") || text.contains("assert") {
+            if hasSuccess && !hasFailure {
+                tags.insert("test-pass")
+                tags.insert("tests-passed")
+                tags.insert("all-passed")
+            } else if hasFailure && !hasSuccess {
+                tags.insert("test-fail")
+                tags.insert("test-failed")
+            } else {
+                tags.insert("test")
+            }
+        }
+
+        // Debug/bug (only when something is actually broken)
+        if hasFailure {
+            tags.insert("debug")
+            tags.insert("bug")
+            tags.insert("investigate")
+        }
+
         return tags
     }
 

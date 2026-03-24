@@ -568,7 +568,15 @@ enum FillerLibrary {
             "That didn't happen. That's not a real episode. And mainframes don't work that way.",         // David
             "The POINT, David, is that one must approach code with theatrical confidence. Now press enter.", // Moira
         ]),
-        TaggedSet(tags: ["git", "commit", "branch", "merge", "push"], lines: [
+        TaggedSet(tags: ["git", "commit", "push"], lines: [
+            "I just committed without reading the diff. I feel alive and terrified at the same time.",        // David
+            "David. That is the exact energy your father brought to signing the Rose Video tax returns.",      // Moira
+            "And we know how THAT turned out. Okay I'm checking the diff now.",                               // David
+            "Commitment is exhausting, David. But it prevents catastrophe.",                                   // Moira
+            "The diff is clean. We're good. Crisis averted.",                                                  // David
+            "I never doubted us. Not for a MOMENT.",                                                           // Moira
+        ]),
+        TaggedSet(tags: ["merge", "conflict", "rebase"], lines: [
             "Okay so apparently there's a merge conflict. Which is basically the code version of two people showing up in the same outfit.", // David
             "I once had a wardrobe malfunction at the Daytime Emmys that was more graceful than this diff.",                                  // Moira
             "It's a DIFF, not a wardrobe situation. We just need to pick which changes to keep.",                                             // David
@@ -576,7 +584,7 @@ enum FillerLibrary {
             "You changed one variable name. To something nobody can pronounce.",                                                               // David
             "Nomenclature is an ART, David. I will not apologize for bringing elegance to this repository.",                                    // Moira
         ]),
-        TaggedSet(tags: ["deploy", "build", "test", "ci"], lines: [
+        TaggedSet(tags: ["build-fail", "error", "failed", "compile-error"], lines: [
             "The build failed. The build FAILED. I can't. I simply cannot.",                               // David
             "David, compose yourself. A failed build is merely an intermission before the triumph.",         // Moira
             "It's not an intermission, it's a DISASTER. Everything was fine five minutes ago.",              // David
@@ -584,13 +592,53 @@ enum FillerLibrary {
             "This isn't art. This is a config file that's missing a comma.",                                 // David
             "And yet, once that comma is restored, we shall RISE. Like a phoenix from the ashes of prod.",   // Moira
         ]),
-        TaggedSet(tags: ["debug", "bugs", "server"], lines: [
+        TaggedSet(tags: ["build-success", "built", "compiled", "no-errors"], lines: [
+            "It built. First try. I don't trust it but it built.",                                            // David
+            "David, accept the victory. When I won the Daytime Emmy, I did not question it. I RECEIVED it.",  // Moira
+            "You questioned it for three days. You called the Academy twice.",                                  // David
+            "Those were CLARIFICATION calls. The point is: the build succeeded. We celebrate.",                 // Moira
+            "Fine. Celebrating. Internally. Very quietly.",                                                     // David
+            "Your father would have popped champagne. You could learn from his enthusiasm.",                    // Moira
+        ]),
+        TaggedSet(tags: ["test-pass", "tests-passed", "all-passed", "coverage"], lines: [
+            "All tests passed. Every single one. I don't trust it.",                                           // David
+            "When every review of Sunrise Bay was positive, I knew something was terribly wrong. And I was RIGHT.", // Moira
+            "What happened?",                                                                                   // David
+            "The network cancelled us the following week. Universal approval is the silence before the axe.",    // Moira
+            "So you're saying passing tests means our app is about to be cancelled.",                            // David
+            "I'm saying VIGILANCE, David. Check the edge cases. Trust nothing. Especially unanimous success.",   // Moira
+        ]),
+        TaggedSet(tags: ["test-fail", "test-failed", "assertion", "spec-fail"], lines: [
+            "Tests failed. Because of COURSE they did.",                                                        // David
+            "Which test failed, David? Specificity is the soul of diagnosis.",                                  // Moira
+            "The one I didn't write. Obviously. My tests always pass because I test things that CAN'T fail.",   // David
+            "That is called cheating, David. And it is beneath us.",                                             // Moira
+            "It's called strategic test selection. There's a difference.",                                       // David
+            "Fix the test. Then we shall move forward. With INTEGRITY.",                                        // Moira
+        ]),
+        TaggedSet(tags: ["debug", "bug", "fix", "investigate"], lines: [
             "There's a bug. Obviously there's a bug. Because why would anything in my life just work.",      // David
             "I have been GUTTED by this error message. Absolutely eviscerated. It says 'undefined.'",        // Moira
             "Yes. That means something doesn't exist that should exist. It's not personal.",                  // David
             "Everything is personal, David. This error message was CLEARLY written to wound me.",              // Moira
             "It was written by a compiler. Compilers don't have feelings.",                                   // David
             "Then explain why it keeps SCREAMING at me in red. That is emotional aggression.",                 // Moira
+        ]),
+        TaggedSet(tags: ["deploy", "ship", "production", "release"], lines: [
+            "We're about to push to production. This is the part where everything either works or we flee the country.", // David
+            "Your father and I have fled a country. It is not as glamorous as it sounds.",                                // Moira
+            "You fled TO Schitt's Creek. That's not fleeing, that's surrendering.",                                       // David
+            "The deploy process reminds me of opening night. Weeks of preparation. Then the curtain rises and you pray.", // Moira
+            "Except on opening night you had understudies. Production has no understudy.",                                 // David
+            "Which is why we test BEFORE shipping. A lesson I wish the Sunrise Bay writers had learned.",                  // Moira
+        ]),
+        TaggedSet(tags: ["search", "grep", "find", "glob"], lines: [
+            "I've been searching this codebase for twenty minutes and I cannot find where this function is defined.",      // David
+            "When I lost my favorite wig in the move from our mansion, I searched for MONTHS. It was in Alexis's suitcase.", // Moira
+            "Why was it in Alexis's suitcase?",                                                                             // David
+            "She thought it was a fun hat. I did not speak to her for two weeks.",                                           // Moira
+            "Okay well this function isn't hiding in anyone's suitcase. It might just not exist.",                           // David
+            "The most devastating search result: nothing. I know that feeling intimately.",                                  // Moira
         ]),
     ]
 
