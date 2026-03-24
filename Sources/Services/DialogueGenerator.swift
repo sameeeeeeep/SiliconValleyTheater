@@ -312,8 +312,7 @@ final class DialogueGenerator: Sendable {
     func generate(events: [SessionEvent], config: TheaterConfig, activeTheme: CharacterTheme? = nil, theaterContext: TheaterContext? = nil) async throws -> [DialogueLine] {
         guard !events.isEmpty else { return [] }
 
-        // First try: build ELI5 dialogue purely from the event summary (no LLM).
-        // Claude's assistant text already explains what happened — we just reformat it.
+        // Step 1: Build accurate dialogue from the event summary (no LLM).
         let summary = EventSummarizer.summarize(events: events)
         let c0 = config.characters[0]
         let c1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
@@ -321,24 +320,98 @@ final class DialogueGenerator: Sendable {
         let templateLines = buildTemplateDialogue(from: summary, c0: c0, c1: c1, userName: userName)
 
         if templateLines.count >= 3 {
-            // Template produced enough ELI5 content — use it directly, skip LLM
-            debugLog("[Generator] Using template dialogue (\(templateLines.count) lines, no LLM)")
+            debugLog("[Generator] Template built \(templateLines.count) lines, sending to ELI5 rewriter...")
             for line in templateLines {
                 let name = config.characters[min(line.characterIndex, config.characters.count - 1)].name
-                debugLog("[Generator]   \(name): \(line.text.prefix(60))")
+                debugLog("[Generator]   BEFORE: \(name): \(line.text.prefix(70))")
             }
+
+            // Step 2: Use 3B model to simplify the template into plain English.
+            // The model REWRITES (easy) instead of GENERATING (hard).
+            let simplified = try await simplifyDialogue(templateLines, config: config)
+
+            if simplified.count >= 3 {
+                debugLog("[Generator] ELI5 rewrite produced \(simplified.count) lines")
+                for line in simplified {
+                    let name = config.characters[min(line.characterIndex, config.characters.count - 1)].name
+                    debugLog("[Generator]   AFTER: \(name): \(line.text.prefix(70))")
+                }
+                return simplified
+            }
+
+            // If rewrite failed, use the template lines as-is (still better than LLM generation)
+            debugLog("[Generator] ELI5 rewrite failed, using raw template lines")
             return templateLines
         }
 
-        // Fallback: not enough template content — use LLM
+        // Fallback: not enough template content — use LLM to generate from scratch
         let prompt = buildPrompt(events: events, config: config, theme: activeTheme, theaterContext: theaterContext)
-        debugLog("[Generator] Template insufficient (\(templateLines.count) lines), using LLM")
+        debugLog("[Generator] Template insufficient (\(templateLines.count) lines), using LLM generation")
         debugLog("[Generator] Prompt length: \(prompt.count) chars")
-        debugLog("[Generator] === FULL PROMPT ===\n\(prompt)\n=== END PROMPT ===")
         let response = try await client.generate(prompt: prompt, maxTokens: 350)
         debugLog("[Generator] Raw response: \(response.prefix(400))")
         let names = config.characters.map(\.name)
         return DialogueParser.parse(response, names: names)
+    }
+
+    /// Use the 3B model as a REWRITER: take accurate template dialogue and simplify it
+    /// for a non-programmer. The model rephrases (easy) instead of generating (hard).
+    private func simplifyDialogue(_ lines: [DialogueLine], config: TheaterConfig) async throws -> [DialogueLine] {
+        let c0 = config.characters[0]
+        let c1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
+
+        // Build the original dialogue as text, pre-stripping technical junk
+        var original = ""
+        for line in lines {
+            let charIdx = min(line.characterIndex, config.characters.count - 1)
+            let name = config.characters[charIdx].name
+            let cleaned = Self.preStripTechnical(line.text)
+            // Skip lines that became empty or stub-like after stripping
+            guard !cleaned.isEmpty else { continue }
+            original += "\(name): \(cleaned)\n"
+        }
+
+        let prompt = """
+        Rewrite this conversation in plain English for someone who has never programmed.
+
+        RULES:
+        - Remove ALL file names (like auth.swift, server.ts, particles.js)
+        - Remove ALL code terms (like WeakRef, jwt.verify, cookieStore, clip-path)
+        - Every line must start with "\(c0.name):" or "\(c1.name):" and alternate between them
+        - Under 20 words per line
+        - Keep the same meaning, just use everyday words
+
+        Original:
+        \(original)
+        Simplified:
+        \(c0.name):
+        """
+
+        debugLog("[Generator] ELI5 rewrite prompt: \(prompt.count) chars")
+        let response = try await client.generate(prompt: prompt, maxTokens: 400)
+        debugLog("[Generator] ELI5 rewrite response: \(response.prefix(400))")
+
+        // Parse the simplified response, prepending c0's name since the prompt ends with it
+        let fullResponse = "\(c0.name): " + response
+        let names = config.characters.map(\.name)
+        var parsed = DialogueParser.parse(fullResponse, names: names)
+
+        // Post-process: strip any file names/code that leaked through the rewrite
+        parsed = parsed.map { line in
+            var text = line.text
+            // Remove file name patterns (word.ext)
+            let filePattern = try? NSRegularExpression(pattern: #"\b\w+\.(swift|ts|js|py|json|yaml|yml|toml|css|html|tsx|jsx|rs|go|rb|md)\b"#, options: [])
+            text = filePattern?.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "a file") ?? text
+            // Remove code-like terms in camelCase or snake_case
+            let codePattern = try? NSRegularExpression(pattern: #"\b[a-z]+[A-Z]\w+\b|\b\w+_\w+\b"#, options: [])
+            text = codePattern?.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "") ?? text
+            // Clean up double spaces
+            while text.contains("  ") { text = text.replacingOccurrences(of: "  ", with: " ") }
+            text = text.trimmingCharacters(in: .whitespaces)
+            return DialogueLine(characterIndex: line.characterIndex, text: text)
+        }
+
+        return parsed
     }
 
     /// Build ELI5 dialogue directly from the event summary — no LLM needed.
@@ -815,5 +888,86 @@ final class DialogueGenerator: Sendable {
 
         // Default: accept if long enough (likely substantive)
         return text.count > 80
+    }
+
+    /// Pre-strip technical jargon from a line BEFORE sending to the simplifier model.
+    /// Removes file names, code syntax, paths, and common code terms.
+    /// This reduces the model's workload — it just rephrases clean-ish English.
+    private static func preStripTechnical(_ text: String) -> String {
+        var t = text
+
+        // Remove file names (word.ext patterns)
+        let fileExts = ["swift", "ts", "js", "py", "json", "yaml", "yml", "toml", "css", "html",
+                        "tsx", "jsx", "rs", "go", "rb", "md", "sh", "txt", "cfg", "conf", "xml"]
+        for ext in fileExts {
+            let pattern = try? NSRegularExpression(pattern: "\\b[\\w/.-]+\\.\(ext)\\b", options: [])
+            t = pattern?.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: "") ?? t
+        }
+
+        // Remove common code syntax patterns
+        let codePatterns: [(String, String)] = [
+            // function calls: something.method() or something(args)
+            (#"\b\w+\.\w+\([^)]*\)"#, ""),
+            // camelCase identifiers (likely code): cookieStore, bearerToken, etc.
+            (#"\b[a-z]+[A-Z][a-zA-Z]+\b"#, ""),
+            // snake_case identifiers
+            (#"\b\w+_\w+\b"#, ""),
+            // paths: /Users/foo/bar or ~/.something
+            (#"[~/][/\w.-]+"#, ""),
+            // dashes used as flags: --flag, -framework
+            (#"\s-{1,2}[a-zA-Z]+"#, ""),
+            // code in backticks
+            (#"`[^`]+`"#, ""),
+            // hex colors: 0x1A1A1F
+            (#"0x[0-9a-fA-F]+"#, ""),
+            // numbers with decimals that look like versions: 2.5, 0.03
+            (#"\b\d+\.\d+\b"#, ""),
+        ]
+        for (pattern, replacement) in codePatterns {
+            let regex = try? NSRegularExpression(pattern: pattern, options: [])
+            t = regex?.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: replacement) ?? t
+        }
+
+        // Remove known jargon and replace with plain words
+        let jargonMap: [(String, String)] = [
+            ("clip-path", "the cropping"),
+            ("WebSocket", "live connection"),
+            ("websocket", "live connection"),
+            ("WeakRef", "auto-cleanup"),
+            ("JWT", "secure pass"),
+            ("jwt", "secure pass"),
+            ("API key", "access key"),
+            ("api key", "access key"),
+            ("bearer token", "access pass"),
+            ("session cookie", "login memory"),
+            ("middleware", "checkpoint"),
+            ("endpoint", "entry point"),
+            ("framework", "toolkit"),
+            ("npm install", "installed dependencies"),
+            ("git commit", "saved our work"),
+            ("git push", "uploaded our changes"),
+            ("pull request", "code review"),
+            ("merge conflict", "editing clash"),
+            ("kqueue", "file change detector"),
+            ("dispatch source", "file change detector"),
+        ]
+        for (jargon, plain) in jargonMap {
+            t = t.replacingOccurrences(of: jargon, with: plain, options: .caseInsensitive)
+        }
+
+        // Clean up artifacts: double spaces, leading/trailing dashes, orphaned punctuation
+        t = t.replacingOccurrences(of: " — ", with: ". ")
+        t = t.replacingOccurrences(of: "—", with: ". ")
+        while t.contains("  ") { t = t.replacingOccurrences(of: "  ", with: " ") }
+        while t.contains("..") { t = t.replacingOccurrences(of: "..", with: ".") }
+        t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If stripping removed too much, return original
+        if t.count < 10 { return text }
+        // If line is now just "We changed." or similar stubs, skip it
+        let lower = t.lowercased()
+        if lower.hasPrefix("we changed") && t.count < 25 { return "" }
+        if lower.hasPrefix("we updated") && t.count < 25 { return "" }
+        return t
     }
 }
