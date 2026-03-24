@@ -47,20 +47,42 @@ struct TheaterContext {
         let projectDirName = (sessionDir as NSString).lastPathComponent
 
         // Decode Claude's path encoding: -Users-name-Documents-MyProject → /Users/name/Documents/MyProject
+        debugLog("[TheaterContext] Resolving project path from dir: \(projectDirName)")
         let projectPath = resolveProjectPath(from: projectDirName)
         guard let projectPath else {
             debugLog("[TheaterContext] Could not resolve project path from: \(projectDirName)")
             return nil
         }
+        debugLog("[TheaterContext] Resolved to: \(projectPath)")
 
         let theaterPath = projectPath + "/.claude/theater.md"
+        debugLog("[TheaterContext] Checking: \(theaterPath)")
         guard FileManager.default.fileExists(atPath: theaterPath) else {
             debugLog("[TheaterContext] No theater.md at \(theaterPath)")
             return nil
         }
+        debugLog("[TheaterContext] File exists, reading...")
 
-        guard let content = try? String(contentsOfFile: theaterPath, encoding: .utf8) else {
-            debugLog("[TheaterContext] Could not read theater.md")
+        // macOS TCC blocks GUI apps from reading ~/Documents without user permission.
+        // The /create-theater skill copies theater.md to ~/.siliconvalley/ as a workaround.
+        // Try the TCC-free cache first, fall back to project path.
+        let cacheDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".siliconvalley").appendingPathComponent("theater_cache")
+        let projectName = (projectPath as NSString).lastPathComponent
+        let cachedPath = cacheDir.appendingPathComponent(projectName + "_theater.md").path
+
+        let content: String
+        if let cached = try? String(contentsOfFile: cachedPath, encoding: .utf8) {
+            content = cached
+            debugLog("[TheaterContext] Read \(content.count) chars from cache: \(cachedPath)")
+        } else if let direct = try? String(contentsOfFile: theaterPath, encoding: .utf8) {
+            content = direct
+            debugLog("[TheaterContext] Read \(content.count) chars directly from: \(theaterPath)")
+            // Cache it for next time
+            try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            try? content.write(toFile: cachedPath, atomically: true, encoding: .utf8)
+        } else {
+            debugLog("[TheaterContext] Could not read theater.md (TCC blocked or unreadable)")
             return nil
         }
 

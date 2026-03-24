@@ -152,12 +152,17 @@ final class SessionWatcher {
         watchProjectsDirectory()
 
         // Only tail if a session is explicitly pinned — no auto-follow.
-        // User must pick a session from the list.
+        // Auto-pin the most recent session on startup so theater.md loads immediately
+        if pinnedSession == nil, let latest = findLatestSessionFile() {
+            pinnedSession = latest
+            debugLog("[Watcher] Auto-pinned most recent session: \(latest.suffix(50))")
+        }
+
         if let pinned = pinnedSession {
             debugLog("[Watcher] Resuming pinned session: \(pinned.suffix(50))")
             tailFile(at: pinned)
         } else {
-            debugLog("[Watcher] No session pinned — waiting for user to pick one")
+            debugLog("[Watcher] No sessions found — waiting for user to pick one")
         }
     }
 

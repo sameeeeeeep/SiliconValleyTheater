@@ -139,54 +139,46 @@ final class TheaterEngine {
         // Recreate LLM client in case config changed
         dialogueGenerator = DialogueGenerator(client: Self.makeLLMClient(config: config))
 
-        // Seed filler pool with static + project-specific content for instant playback
-        fillerPool.seed(themeId: config.activeThemeId, theaterContext: theaterContext)
-
         phase = .watching
+        coldOpenPlayed = false
         debugLog("[Theater] Started (\(config.llmProvider.rawValue) / \(config.ttsProvider.rawValue))")
 
-        // Check LLM + TTS availability, then play cold open
-        coldOpenPlayed = false
-        Task {
-            llmAvailable = await dialogueGenerator.isAvailable()
-            ollamaAvailable = llmAvailable
-
-            if llmAvailable {
-                debugLog("[Theater] LLM connected (\(config.llmProvider.rawValue))")
-            } else {
-                switch config.llmProvider {
-                case .groq:
-                    setError("Groq API not reachable. Check your API key at console.groq.com")
-                case .ollama:
-                    setError("Ollama not reachable at \(config.ollamaURL). Run 'ollama serve' first.")
-                }
-            }
-
-            await setupTTS()
-
-            // Load theater.md BEFORE cold open so we get theme-specific intros
-            if let sessionPath = self.watcher.currentSessionFile, self.theaterContext == nil {
-                self.theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
-            }
-
-            // Play cold open banter while waiting for real events
-            if ttsReady && !coldOpenPlayed {
-                coldOpenPlayed = true
-                coldOpenTask = Task { @MainActor [weak self] in
-                    await self?.playColdOpen()
-                }
-            }
-        }
-
-        // Start watching JSONL files
+        // Single task: watcher → theater.md → seed → LLM/TTS → cold open → event loop
         watchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let stream = self.watcher.watch()
             debugLog("[Theater] Watcher started. Session file: \(self.watcher.currentSessionFile ?? "searching...")")
 
-            // Load theater.md if not already loaded above
+            // Load theater.md now that watcher has a session
             if let sessionPath = self.watcher.currentSessionFile, self.theaterContext == nil {
                 self.theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
+                if self.theaterContext != nil {
+                    self.fillerPool.seed(themeId: self.config.activeThemeId, theaterContext: self.theaterContext)
+                    debugLog("[Theater] Loaded theater.md + re-seeded filler pool")
+                }
+            } else {
+                // No theater.md — seed with static fillers only
+                self.fillerPool.seed(themeId: self.config.activeThemeId, theaterContext: nil)
+            }
+
+            // Check LLM + TTS availability, then play cold open
+            self.llmAvailable = await self.dialogueGenerator.isAvailable()
+            self.ollamaAvailable = self.llmAvailable
+            if self.llmAvailable {
+                debugLog("[Theater] LLM connected (\(self.config.llmProvider.rawValue))")
+            } else {
+                switch self.config.llmProvider {
+                case .groq:
+                    self.setError("Groq API not reachable. Check your API key at console.groq.com")
+                case .ollama:
+                    self.setError("Ollama not reachable at \(self.config.ollamaURL). Run 'ollama serve' first.")
+                }
+            }
+            await self.setupTTS()
+
+            if self.ttsReady && !self.coldOpenPlayed {
+                self.coldOpenPlayed = true
+                await self.playColdOpen()
             }
 
             for await event in stream {
