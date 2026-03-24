@@ -328,7 +328,7 @@ final class DialogueGenerator: Sendable {
 
             // Step 2: Use 3B model to simplify the template into plain English.
             // The model REWRITES (easy) instead of GENERATING (hard).
-            let simplified = try await simplifyDialogue(templateLines, config: config)
+            let simplified = try await simplifyDialogue(templateLines, config: config, theaterContext: theaterContext)
 
             if simplified.count >= 3 {
                 debugLog("[Generator] ELI5 rewrite produced \(simplified.count) lines")
@@ -356,16 +356,26 @@ final class DialogueGenerator: Sendable {
 
     /// Use the 3B model as a REWRITER: take accurate template dialogue and simplify it
     /// for a non-programmer. The model rephrases (easy) instead of generating (hard).
-    private func simplifyDialogue(_ lines: [DialogueLine], config: TheaterConfig) async throws -> [DialogueLine] {
+    private func simplifyDialogue(_ lines: [DialogueLine], config: TheaterConfig, theaterContext: TheaterContext? = nil) async throws -> [DialogueLine] {
         let c0 = config.characters[0]
         let c1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
+
+        // Get project-specific jargon map from theater.md (the magic sauce)
+        let projectJargon = theaterContext?.jargonMap() ?? []
 
         // Build the original dialogue as text, pre-stripping technical junk
         var original = ""
         for line in lines {
             let charIdx = min(line.characterIndex, config.characters.count - 1)
             let name = config.characters[charIdx].name
-            let cleaned = Self.preStripTechnical(line.text)
+            var cleaned = Self.preStripTechnical(line.text)
+            // Apply project-specific jargon replacements from theater.md
+            for entry in projectJargon {
+                cleaned = cleaned.replacingOccurrences(of: entry.term, with: entry.plain, options: .caseInsensitive)
+            }
+            // Clean up artifacts after replacement
+            while cleaned.contains("  ") { cleaned = cleaned.replacingOccurrences(of: "  ", with: " ") }
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             // Skip lines that became empty or stub-like after stripping
             guard !cleaned.isEmpty else { continue }
             original += "\(name): \(cleaned)\n"
@@ -394,23 +404,7 @@ final class DialogueGenerator: Sendable {
         // Parse the simplified response, prepending c0's name since the prompt ends with it
         let fullResponse = "\(c0.name): " + response
         let names = config.characters.map(\.name)
-        var parsed = DialogueParser.parse(fullResponse, names: names)
-
-        // Post-process: strip any file names/code that leaked through the rewrite
-        parsed = parsed.map { line in
-            var text = line.text
-            // Remove file name patterns (word.ext)
-            let filePattern = try? NSRegularExpression(pattern: #"\b\w+\.(swift|ts|js|py|json|yaml|yml|toml|css|html|tsx|jsx|rs|go|rb|md)\b"#, options: [])
-            text = filePattern?.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "a file") ?? text
-            // Remove code-like terms in camelCase or snake_case
-            let codePattern = try? NSRegularExpression(pattern: #"\b[a-z]+[A-Z]\w+\b|\b\w+_\w+\b"#, options: [])
-            text = codePattern?.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "") ?? text
-            // Clean up double spaces
-            while text.contains("  ") { text = text.replacingOccurrences(of: "  ", with: " ") }
-            text = text.trimmingCharacters(in: .whitespaces)
-            return DialogueLine(characterIndex: line.characterIndex, text: text)
-        }
-
+        let parsed = DialogueParser.parse(fullResponse, names: names)
         return parsed
     }
 

@@ -140,6 +140,7 @@ Moira: Because I am a professional. I always have my materials prepared. Unlike 
 
 ### TheaterEngine
 <!-- Keywords: theaterengine, engine, orchestrator, theater -->
+<!-- Plain: the main controller that runs everything -->
 David: TheaterEngine is the file that does EVERYTHING. Seven hundred lines. Events, dialogue, speech. All of it.
 Moira: It is the Sunrise Bay of this codebase. Long-running, occasionally dramatic, absolutely essential.
 David: It has six phases. Idle, watching, buffering, generating, synthesizing, playing. Like the stages of grief.
@@ -149,6 +150,7 @@ Moira: Your father has an instinct for organizational dysfunction. It's the one 
 
 ### JSONL
 <!-- Keywords: jsonl, json lines, session file, event log -->
+<!-- Plain: the activity log -->
 David: JSONL is JSON Lines. One JSON object per line. Every Claude Code event gets written to these files.
 Moira: It is a chronicle, David. A moment-by-moment account of every tool call, every message, every decision.
 David: We tail the latest file and parse each line. Remember when Johnny read his hotel's guest complaint log out loud?
@@ -158,6 +160,7 @@ Moira: Selective reading. The mark of wisdom. Or denial. Depending on perspectiv
 
 ### Pocket TTS
 <!-- Keywords: pocket tts, pocket, tts, mlx, voice cloning, sidecar -->
+<!-- Plain: the local voice generator -->
 David: Pocket TTS runs voice cloning LOCALLY on your Mac. No cloud. No API key. Just your GPU doing its best.
 Moira: I provided my voice sample personally. Ten seconds of my acceptance speech from the Daytime Emmys.
 David: You used your EMMY SPEECH as a voice sample? Of course you did.
@@ -167,6 +170,7 @@ Moira: I would rather perform in SILENCE than be voiced by a machine that sounds
 
 ### DynamicFillerPool
 <!-- Keywords: filler, pool, dynamic, banter, consume -->
+<!-- Plain: the backup conversation library -->
 Moira: The DynamicFillerPool is our understudy system. Pre-written dialogue waiting in the wings.
 David: Each set plays once and gets discarded. Like opening night flowers. Beautiful, temporary, thrown away.
 Moira: The pool replenishes during idle periods. The LLM generates new material while we rest between scenes.
@@ -176,6 +180,7 @@ David: The pool now holds five sets minimum. Context-matched by tags. It picks b
 
 ### kqueue
 <!-- Keywords: kqueue, file watcher, dispatchsource, file watching, inotify -->
+<!-- Plain: the file change detector -->
 David: kqueue is how macOS tells us a file changed. We register a file and the OS pings us when it updates.
 Moira: When I starred in Sunrise Bay, I had a personal assistant who informed me of script changes INSTANTLY. kqueue is that.
 David: Except kqueue never takes lunch breaks. Remember when your assistant missed the rewrite of episode forty-seven?
@@ -185,6 +190,7 @@ Moira: Superior to every assistant I've ever employed. Including the one who los
 
 ### Voice Cloning
 <!-- Keywords: voice clone, voice cloning, clone, voice sample, reference audio -->
+<!-- Plain: copying someone's voice from a short recording -->
 David: Voice cloning takes a ten-second audio clip and builds a whole voice from it. Locally. On your laptop.
 Moira: I provided MY voice. Ten seconds of my Daytime Emmy acceptance speech. The model was HONORED to receive it.
 David: Remember when Roland tried to record HIS voice sample? There was a lawnmower running the entire time.
@@ -194,6 +200,7 @@ Moira: And the cloned voice kept inserting "oh my GOD David" at random intervals
 
 ### WAV Cache
 <!-- Keywords: wav cache, voice cache, voice_cache, disk cache, cached audio -->
+<!-- Plain: saved voice recordings for instant replay -->
 David: Every line we synthesize gets saved as a WAV file on disk. So next time the same line comes up, instant playback.
 Moira: Remember the FIRST session before we had caching? Four seconds of silence between every line.
 David: It was unbearable. Johnny asked if the app had crashed. It hadn't. It was just THINKING.
@@ -203,6 +210,7 @@ Moira: Your father once kept every hotel receipt from 1987 onward. The Rose fami
 
 ### Few-Shot Examples
 <!-- Keywords: few-shot, few shot, example, examples, prompt example -->
+<!-- Plain: sample conversations we show as a reference -->
 David: Few-shot examples are sample dialogues we show the LLM before asking it to write one. Show, don't tell.
 Moira: I once gave a line reading for a FUNERAL scene and the understudy performed it at a WEDDING. That is what happens without examples.
 David: Without them, the three-billion-parameter model writes "that's a good approach" over and over. We tested this.
@@ -212,6 +220,7 @@ Moira: Wrong context. Wrong example. Wrong boots. The principle is universal.
 
 ### RAG
 <!-- Keywords: rag, retrieval, keyword matching, context matching, relevance -->
+<!-- Plain: finding the best matching example for the situation -->
 David: RAG is Retrieval Augmented Generation. We search our examples for the best match, then feed it to the LLM.
 Moira: We do not randomly select. Remember when the caterer randomly selected the menu for Johnny's birthday?
 David: We got a vegan tasting menu at a steakhouse. Johnny didn't speak to Alexis for a week.

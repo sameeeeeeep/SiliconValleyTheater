@@ -28,6 +28,7 @@ struct TheaterContext {
     struct TermEntry {
         let term: String
         let keywords: [String]
+        let plainEnglish: String  // jargon → plain English replacement for pre-stripping
         let dialogue: String
     }
 
@@ -152,8 +153,9 @@ struct TheaterContext {
         let termExplainers = parseNamedSubsections(sections["Term Explainers"] ?? "").map { (name, sub) in
             let kwStr = extractComment(from: sub, tag: "Keywords")
             let keywords = kwStr.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            let plain = extractComment(from: sub, tag: "Plain")
             let dialogue = stripComments(sub)
-            return TermEntry(term: name, keywords: keywords, dialogue: dialogue)
+            return TermEntry(term: name, keywords: keywords, plainEnglish: plain, dialogue: dialogue)
         }
 
         // Parse cold opens
@@ -310,5 +312,24 @@ struct TheaterContext {
         return termExplainers.first { entry in
             entry.keywords.contains { lower.contains($0) }
         }
+    }
+
+    /// Build a jargon → plain English dictionary from all term explainers.
+    /// Used by the pre-stripper to replace technical terms before they hit the LLM.
+    /// Each term's keywords become lookup keys, and its `plainEnglish` is the replacement.
+    func jargonMap() -> [(term: String, plain: String)] {
+        var map: [(term: String, plain: String)] = []
+        for entry in termExplainers {
+            guard !entry.plainEnglish.isEmpty else { continue }
+            // The term name itself is a jargon word
+            map.append((term: entry.term, plain: entry.plainEnglish))
+            // Each keyword is also a potential jargon match
+            for kw in entry.keywords where kw != entry.term.lowercased() && kw.count > 3 {
+                map.append((term: kw, plain: entry.plainEnglish))
+            }
+        }
+        // Sort by term length descending so longer matches replace first
+        // ("voice cloning" before "voice", "dispatch source" before "dispatch")
+        return map.sorted { $0.term.count > $1.term.count }
     }
 }
