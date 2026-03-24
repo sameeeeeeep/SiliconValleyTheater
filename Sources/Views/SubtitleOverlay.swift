@@ -16,7 +16,8 @@ struct SubtitleOverlay: View {
     }
 
     private var accent: Color {
-        line.characterIndex == 0 ? .cyan : .green
+        if line.isFiller { return .yellow }
+        return line.characterIndex == 0 ? .cyan : .green
     }
 
     var body: some View {

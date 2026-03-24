@@ -138,8 +138,8 @@ final class TheaterEngine {
         // Recreate LLM client in case config changed
         dialogueGenerator = DialogueGenerator(client: Self.makeLLMClient(config: config))
 
-        // Seed filler pool with static content for instant playback
-        fillerPool.seed(themeId: config.activeThemeId)
+        // Seed filler pool with static + project-specific content for instant playback
+        fillerPool.seed(themeId: config.activeThemeId, theaterContext: theaterContext)
 
         phase = .watching
         debugLog("[Theater] Started (\(config.llmProvider.rawValue) / \(config.ttsProvider.rawValue))")
@@ -293,8 +293,8 @@ final class TheaterEngine {
             if let theme = ThemeStore.shared.allThemes().first(where: { $0.id == themeId }) {
                 config.applyTheme(theme)
             }
-            // Re-seed filler pool with new theme's content
-            fillerPool.resetForTheme(themeId: themeId)
+            // Re-seed filler pool with new theme's + project content
+            fillerPool.resetForTheme(themeId: themeId, theaterContext: theaterContext)
         }
         debugLog("[Theater] Set room theme: \(themeId) for \(sessionPath.suffix(40))")
     }
@@ -544,7 +544,9 @@ final class TheaterEngine {
         guard let set = fillerPool.consumeNext(contextHints: recentEventDetails) else { return false }
 
         debugLog("[Theater] Playing filler set (\(set.source), \(set.lines.count) lines, pool: \(fillerPool.poolStatus))")
-        await playLines(set.lines)
+        // Mark filler lines so the widget can show them in yellow
+        let fillerLines = set.lines.map { DialogueLine(characterIndex: $0.characterIndex, text: $0.text, isFiller: true) }
+        await playLines(fillerLines)
         return true
     }
 

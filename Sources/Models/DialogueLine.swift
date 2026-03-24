@@ -7,12 +7,14 @@ struct DialogueLine: Identifiable {
     let characterIndex: Int
     let text: String
     let timestamp: Date
+    let isFiller: Bool  // true for filler/term explainer lines (shown in yellow in widget)
 
-    init(characterIndex: Int, text: String) {
+    init(characterIndex: Int, text: String, isFiller: Bool = false) {
         self.id = UUID()
         self.characterIndex = characterIndex
         self.text = text
         self.timestamp = Date()
+        self.isFiller = isFiller
     }
 }
 

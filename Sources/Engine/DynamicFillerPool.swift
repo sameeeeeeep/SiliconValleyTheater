@@ -38,27 +38,58 @@ final class DynamicFillerPool {
 
     /// Load all static filler sets and term explainers as initial pool content.
     /// Called once at startup or when theme changes.
-    func seed(themeId: String) {
+    func seed(themeId: String, theaterContext: TheaterContext? = nil) {
         // Load static filler sets (shuffled for variety)
         let staticSets = FillerLibrary.allSets(themeId: themeId)
         readyPool = staticSets
 
+        // Load project-specific fillers from theater.md (higher priority — inserted at front)
+        if let ctx = theaterContext {
+            let projectFillers = ctx.fillers.compactMap { entry -> FillerSet? in
+                let lines = parseFillerDialogue(entry.dialogue)
+                guard !lines.isEmpty else { return nil }
+                return FillerSet(lines: lines, source: .theaterMd, tags: entry.tags, isVoiceCached: false)
+            }
+            // Project-specific fillers go at the front — they're more relevant
+            readyPool = projectFillers + readyPool
+            debugLog("[FillerPool] Added \(projectFillers.count) project-specific fillers from theater.md")
+        }
+
         // Load static term explainers
         termExplainers = FillerLibrary.allTermExplainerEntries()
+
+        // Load project-specific term explainers from theater.md
+        if let ctx = theaterContext {
+            let projectTerms = ctx.termExplainers.compactMap { entry -> TermExplainerEntry? in
+                let lines = parseFillerDialogue(entry.dialogue)
+                guard !lines.isEmpty else { return nil }
+                let set = FillerSet(lines: lines, source: .theaterMd, tags: Set(entry.keywords))
+                return TermExplainerEntry(
+                    canonicalTerm: entry.term.lowercased(),
+                    keywords: entry.keywords,
+                    fillerSet: set
+                )
+            }
+            // Filter out terms already known (from static library)
+            let newTerms = projectTerms.filter { !knownTerms.contains($0.canonicalTerm) }
+            termExplainers.append(contentsOf: newTerms)
+            debugLog("[FillerPool] Added \(newTerms.count) project-specific term explainers from theater.md")
+        }
+
         knownTerms = Set(termExplainers.map(\.canonicalTerm))
 
         debugLog("[FillerPool] Seeded with \(readyPool.count) filler sets, \(termExplainers.count) term explainers")
     }
 
     /// Flush pool and re-seed for a new theme.
-    func resetForTheme(themeId: String) {
+    func resetForTheme(themeId: String, theaterContext: TheaterContext? = nil) {
         cancelAll()
         readyPool.removeAll()
         termExplainers.removeAll()
         // Keep consumedTerms across resets — never replay consumed terms
         // Merge consumedTerms into knownTerms so they're also blocked from novel detection
         knownTerms = consumedTerms
-        seed(themeId: themeId)
+        seed(themeId: themeId, theaterContext: theaterContext)
     }
 
     // MARK: - Consumption
@@ -127,6 +158,24 @@ final class DynamicFillerPool {
             }
         }
         return tags
+    }
+
+    /// Parse a dialogue string (e.g. "David: Hello\nMoira: Hi") into DialogueLines.
+    private func parseFillerDialogue(_ text: String) -> [DialogueLine] {
+        let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        var result: [DialogueLine] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Try to parse "CharName: text" format
+            if let colonIdx = trimmed.firstIndex(of: ":") {
+                let afterColon = trimmed[trimmed.index(after: colonIdx)...].trimmingCharacters(in: .whitespaces)
+                guard !afterColon.isEmpty else { continue }
+                // Character index: even lines = 0, odd lines = 1
+                let charIdx = result.count % 2
+                result.append(DialogueLine(characterIndex: charIdx, text: afterColon))
+            }
+        }
+        return result
     }
 
     /// Find and consume a term explainer matching any detected keywords.
