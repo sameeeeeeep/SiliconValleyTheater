@@ -230,6 +230,7 @@ Moira: The system once matched a "build failed" example when the build had SUCCE
 
 ### Event Batching
 <!-- Keywords: batch, buffer, buffering, event buffer, batch events -->
+<!-- Plain: collecting changes for a few seconds before responding -->
 David: We don't react to every single event. We wait three seconds, collect everything, THEN respond.
 Moira: Remember when Alexis used to narrate every step of her morning routine on Instagram LIVE?
 David: "I'm opening the fridge. I'm looking at the fridge. I'm closing the fridge." That's what unbatched events sound like.
@@ -239,6 +240,7 @@ Moira: Your father once received forty-seven emails in a row because someone rep
 
 ### Pipelined Playback
 <!-- Keywords: pipeline, pipelined, synthesize ahead, pre-synthesize, concurrent -->
+<!-- Plain: preparing the next voice line while the current one plays -->
 David: Pipelined playback means we start making the audio for line two while line one is still playing. No gaps.
 Moira: In Sunrise Bay, we called this "hot switching." One camera cuts to the next. No dead air between scenes.
 David: Remember when the pipeline WASN'T working? Three-second pause between every line.
@@ -248,6 +250,7 @@ Moira: Now the next line is READY before the current one finishes. As it should 
 
 ### Sidecar Process
 <!-- Keywords: sidecar, python sidecar, server.py, helper process, subprocess -->
+<!-- Plain: a helper program running alongside the main app -->
 David: A sidecar is a helper process. Our main app is Swift. The TTS engine is a Python server running alongside it.
 Moira: Remember when Johnny hired Roland as a "business consultant"? Two different people. Two different languages. Same office.
 David: Roland flooded the basement. Our sidecar merely crashes occasionally. Still an improvement.
@@ -257,6 +260,7 @@ Moira: I would rather perform in COMPLETE silence than be voiced by a navigation
 
 ### MLX
 <!-- Keywords: mlx, apple silicon, metal, gpu, neural engine, local inference -->
+<!-- Plain: Apple's system for running AI on your laptop -->
 David: MLX is Apple's framework for running AI models locally. Right on the GPU. No internet required.
 Moira: Remember when the hotel WiFi went down for three days? Johnny couldn't run ANYTHING cloud-based.
 David: MLX means that never happens to us. Voice cloning, inference, everything runs on the actual laptop.
@@ -266,6 +270,7 @@ Moira: Your father once ran a board meeting from a cabin with no cell service. I
 
 ### Context Window
 <!-- Keywords: context window, context length, token limit, 32k, prompt length -->
+<!-- Plain: how much text the AI can read at once -->
 David: The context window is how much text the LLM can see at once. Ours is thirty-two thousand tokens.
 Moira: Remember when Johnny tried to read the ENTIRE hotel operations manual at once? Two thousand pages?
 David: He got to page forty and forgot what page one was about. That's context window overflow.
@@ -275,6 +280,7 @@ Moira: When I script-doctored Sunrise Bay, I cut every episode by fifteen pages.
 
 ### System Prompt
 <!-- Keywords: system prompt, instructions, prompt engineering, prompt template -->
+<!-- Plain: the instructions we give the AI before it writes anything -->
 David: The system prompt is instructions we give the LLM before it writes anything. Director's notes.
 Moira: Remember when the new director on Sunrise Bay gave NO notes? The actors improvised for two episodes.
 David: Someone played a death scene as comedy. THAT is what happens without a system prompt.
@@ -284,6 +290,7 @@ Moira: We once gave it fourteen rules. The output was GIBBERISH. Half the lines 
 
 ### Token
 <!-- Keywords: token, tokens, tokenizer, tokenization -->
+<!-- Plain: a word or piece of a word that the AI reads -->
 David: A token is roughly a word. Or part of a word. It's how LLMs measure input and output.
 Moira: The model does not read WORDS, David. It reads tokens. "Unbelievable" becomes three tokens. "Hi" is one.
 David: Remember when Johnny tried to send a one-page fax and it came out as forty pages? Tokenization is the reverse.
@@ -293,6 +300,7 @@ Moira: The cast nearly REVOLTED. Stevie had to personally drive to the store for
 
 ### SwiftUI
 <!-- Keywords: swiftui, swift ui, view, widget view, @state, @observable -->
+<!-- Plain: the layout system that builds our interface -->
 David: SwiftUI is how we build the interface. You describe what you want and it figures out the layout.
 Moira: Remember when Johnny described what he wanted for the motel lobby and Ted just DID it?
 David: Except SwiftUI doesn't argue back. You say "rounded corners, twelve pixels" and it happens.
@@ -302,6 +310,7 @@ Moira: Self-updating. Unlike the Schitt's Creek town sign, which required MANUAL
 
 ### Ollama
 <!-- Keywords: ollama, ollama serve, local llm, qwen, model serve -->
+<!-- Plain: the program that runs AI models on your computer -->
 David: Ollama runs language models locally on your Mac. Pull a model, start the server, talk to it.
 Moira: Remember when we tried to use a cloud API and Johnny's WiFi dropped mid-generation?
 David: Half a sentence. "David and Moira are—" and then nothing. For forty-five seconds.
