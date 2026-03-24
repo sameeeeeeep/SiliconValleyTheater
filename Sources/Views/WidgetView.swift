@@ -403,7 +403,7 @@ struct WidgetView: View {
                 .overlay(
                     Text(String(char.name.prefix(1)))
                         .font(.system(size: 48, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.03))
+                        .foregroundStyle(.white.opacity(0.05))
                 )
             }
 
@@ -474,8 +474,8 @@ struct WidgetView: View {
                     }
 
                     Text(line.text)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.9))
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.92))
                         .lineSpacing(3)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)

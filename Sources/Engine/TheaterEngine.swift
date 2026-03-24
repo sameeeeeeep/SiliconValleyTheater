@@ -847,6 +847,7 @@ final class TheaterEngine {
             if useTTS {
                 let charIdx = min(line.characterIndex, config.characters.count - 1)
                 let voiceID = config.characters[charIdx].voiceID
+                debugLog("[Theater] Speaking: \(config.characters[charIdx].name) via voice=\(voiceID) tts=\(config.ttsProvider.rawValue) | \"\(line.text.prefix(50))\"")
                 let audio = await synthesizeCached(text: line.text, voiceID: voiceID, speed: config.ttsSpeed)
 
                 if let audio {

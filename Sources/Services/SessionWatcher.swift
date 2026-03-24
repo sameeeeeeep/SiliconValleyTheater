@@ -151,15 +151,13 @@ final class SessionWatcher {
         // Watch the projects directory for new/changed files
         watchProjectsDirectory()
 
-        // Tail pinned session or latest
+        // Only tail if a session is explicitly pinned — no auto-follow.
+        // User must pick a session from the list.
         if let pinned = pinnedSession {
             debugLog("[Watcher] Resuming pinned session: \(pinned.suffix(50))")
             tailFile(at: pinned)
-        } else if let latest = findLatestSessionFile() {
-            debugLog("[Watcher] Found latest session: \(latest)")
-            tailFile(at: latest)
         } else {
-            debugLog("[Watcher] No JSONL files found in \(claudeProjectsDir.path)")
+            debugLog("[Watcher] No session pinned — waiting for user to pick one")
         }
     }
 
@@ -176,15 +174,9 @@ final class SessionWatcher {
         source.schedule(deadline: .now() + 5, repeating: 5.0)
         source.setEventHandler { [weak self] in
             guard let self else { return }
-            // Refresh session list
+            // Refresh session list only — never auto-switch sessions.
+            // The user must explicitly pick a session to follow.
             self.availableSessions = self.findAllSessions()
-            // Only auto-switch if not pinned
-            if self.pinnedSession == nil,
-               let latest = self.findLatestSessionFile(),
-               latest != self.currentSessionFile {
-                debugLog("[Watcher] New session detected: \(latest)")
-                self.tailFile(at: latest)
-            }
         }
         source.resume()
         directorySource = source

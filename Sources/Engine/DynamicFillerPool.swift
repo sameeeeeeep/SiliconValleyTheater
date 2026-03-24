@@ -21,8 +21,12 @@ final class DynamicFillerPool {
     /// Term explainer entries (static + dynamic), consumed on play
     private var termExplainers: [TermExplainerEntry] = []
 
-    /// Terms that have already been played or queued for generation (avoid duplicates)
+    /// Terms that have already been played or queued for generation (avoid duplicates).
+    /// This set persists across seed/reset cycles to prevent re-triggering consumed terms.
     private var knownTerms: Set<String> = []
+
+    /// Terms that have been consumed/played — never regenerate these, even after reset.
+    private var consumedTerms: Set<String> = []
 
     /// Background replenishment task
     private var replenishTask: Task<Void, Never>?
@@ -51,7 +55,9 @@ final class DynamicFillerPool {
         cancelAll()
         readyPool.removeAll()
         termExplainers.removeAll()
-        knownTerms.removeAll()
+        // Keep consumedTerms across resets — never replay consumed terms
+        // Merge consumedTerms into knownTerms so they're also blocked from novel detection
+        knownTerms = consumedTerms
         seed(themeId: themeId)
     }
 
@@ -130,10 +136,13 @@ final class DynamicFillerPool {
 
         // Check static + dynamic term explainers
         if let idx = termExplainers.firstIndex(where: { entry in
+            !consumedTerms.contains(entry.canonicalTerm) &&
             entry.keywords.contains(where: { lower.contains($0) })
         }) {
             let entry = termExplainers.remove(at: idx)
-            debugLog("[FillerPool] Consumed term explainer: '\(entry.canonicalTerm)'")
+            consumedTerms.insert(entry.canonicalTerm)
+            knownTerms.insert(entry.canonicalTerm)
+            debugLog("[FillerPool] Consumed term explainer: '\(entry.canonicalTerm)' (permanently marked)")
             return entry.fillerSet
         }
         return nil
@@ -145,7 +154,7 @@ final class DynamicFillerPool {
         let lower = details.joined(separator: " ").lowercased()
         var novel: [String] = []
         for (term, keywords) in FillerLibrary.extendedTermKeywords {
-            guard !knownTerms.contains(term) else { continue }
+            guard !knownTerms.contains(term), !consumedTerms.contains(term) else { continue }
             if keywords.contains(where: { lower.contains($0) }) {
                 novel.append(term)
                 knownTerms.insert(term)  // mark as known to avoid re-queuing

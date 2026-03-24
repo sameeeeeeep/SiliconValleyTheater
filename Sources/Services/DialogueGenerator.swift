@@ -548,11 +548,19 @@ final class DialogueGenerator: Sendable {
         var change: String?
         var outcome: String?
 
+        // Collect all assistant lines and pick the longest/most substantive one.
+        // Short ones like "Sure, let me check" are filler — the long ones are explanations.
+        var assistantCandidates: [String] = []
+
         for line in lines {
             if line.hasPrefix("USER:") && userAsk == nil {
                 userAsk = String(line.dropFirst(5).trimmingCharacters(in: .whitespaces).prefix(80))
-            } else if line.hasPrefix("ASSISTANT:") && assistantExplanation == nil {
-                assistantExplanation = String(line.dropFirst(10).trimmingCharacters(in: .whitespaces).prefix(120))
+            } else if line.hasPrefix("ASSISTANT:") {
+                let text = String(line.dropFirst(10).trimmingCharacters(in: .whitespaces))
+                // Skip short narration-like responses
+                if text.count > 40 {
+                    assistantCandidates.append(text)
+                }
             } else if line.hasPrefix("CHANGED:") && change == nil {
                 change = String(line.dropFirst(8).trimmingCharacters(in: .whitespaces).prefix(80))
             } else if line.hasPrefix("FAILED:") {
@@ -561,6 +569,9 @@ final class DialogueGenerator: Sendable {
                 outcome = line
             }
         }
+
+        // Pick the longest assistant explanation — that's the one with real content
+        assistantExplanation = assistantCandidates.max(by: { $0.count < $1.count }).map { String($0.prefix(120)) }
 
         // Build 2-3 seed lines that convey the situation accurately.
         // The 3B model only needs to continue with reactions and stories.
