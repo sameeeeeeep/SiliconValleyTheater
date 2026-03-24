@@ -584,7 +584,7 @@ enum FillerLibrary {
             "You changed one variable name. To something nobody can pronounce.",                                                               // David
             "Nomenclature is an ART, David. I will not apologize for bringing elegance to this repository.",                                    // Moira
         ]),
-        TaggedSet(tags: ["build-fail", "error", "failed", "compile-error"], lines: [
+        TaggedSet(tags: ["build-fail", "compile-error"], lines: [
             "The build failed. The build FAILED. I can't. I simply cannot.",                               // David
             "David, compose yourself. A failed build is merely an intermission before the triumph.",         // Moira
             "It's not an intermission, it's a DISASTER. Everything was fine five minutes ago.",              // David

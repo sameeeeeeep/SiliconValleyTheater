@@ -120,17 +120,16 @@ final class DynamicFillerPool {
             }
         }
 
-        // No context match — only pick NEUTRAL fillers (not situation-specific ones)
-        // Situation-specific fillers (build-fail, test-fail, merge conflict) sound wrong
-        // when played without matching context.
-        let situationalTags: Set<String> = [
-            "build-fail", "build-success", "test-fail", "test-pass",
-            "merge", "conflict", "deploy", "error", "failed",
-            "test-failed", "compile-error", "spec-fail",
+        // No context match — only pick fillers tagged as safe to play anytime.
+        // Flip the logic: whitelist neutral tags instead of blacklisting situational ones.
+        let neutralTags: Set<String> = [
+            "coding", "edit", "file", "refactor",
+            "git", "commit", "push",
+            "search", "grep", "find", "glob",
         ]
         let neutralIdx = readyPool.firstIndex(where: { set in
-            // A set is neutral if NONE of its tags are situational
-            set.tags.intersection(situationalTags).isEmpty
+            // A set is neutral if ANY of its tags are in the neutral whitelist
+            !set.tags.intersection(neutralTags).isEmpty
         })
         if let idx = neutralIdx {
             return readyPool.remove(at: idx)
