@@ -674,11 +674,15 @@ final class TheaterEngine {
         }
 
         // === PHASE 1: "Joining the call" intro (consume-and-discard, voice-cached) ===
-        // Prefer theater.md cold opens (theme-specific), fall back to generic intros
+        // ONLY use theater.md cold opens (theme-specific). Never fall back to hardcoded intros
+        // which contain cross-show references (Dinesh/Big Head in David/Moira sessions).
         if introPool.isEmpty {
+            // If theaterContext isn't loaded yet, try loading it now from the session
+            if theaterContext == nil, let sessionPath = watcher.currentSessionFile {
+                theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
+            }
+
             if let ctx = theaterContext, !ctx.coldOpens.isEmpty {
-                // Use theater.md cold opens — these are theme-specific (David/Moira, Gilfoyle/Dinesh, etc.)
-                // Parse "CharName: text" lines from the raw dialogue string
                 let names = config.characters.map(\.name)
                 introPool = ctx.coldOpens.compactMap { open in
                     let lines = open.dialogue.components(separatedBy: .newlines)
@@ -695,12 +699,11 @@ final class TheaterEngine {
                     }
                     return parsed.count >= 3 ? parsed : nil
                 }
+                introPool.shuffle()
                 debugLog("[Theater] Seeded intro pool from theater.md (\(introPool.count) cold opens)")
             } else {
-                introPool = Self.makeIntroPool(projectHint: projectHint)
-                debugLog("[Theater] Seeded intro pool from hardcoded intros (\(introPool.count) variations)")
+                debugLog("[Theater] No theater.md cold opens available, skipping intro")
             }
-            introPool.shuffle()
         }
 
         // === PHASE 2: Fire off LLM with first user message during intro playback ===
