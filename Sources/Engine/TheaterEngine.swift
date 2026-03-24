@@ -164,6 +164,11 @@ final class TheaterEngine {
 
             await setupTTS()
 
+            // Load theater.md BEFORE cold open so we get theme-specific intros
+            if let sessionPath = self.watcher.currentSessionFile, self.theaterContext == nil {
+                self.theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
+            }
+
             // Play cold open banter while waiting for real events
             if ttsReady && !coldOpenPlayed {
                 coldOpenPlayed = true
@@ -179,7 +184,7 @@ final class TheaterEngine {
             let stream = self.watcher.watch()
             debugLog("[Theater] Watcher started. Session file: \(self.watcher.currentSessionFile ?? "searching...")")
 
-            // Load theater.md after watcher finds a session
+            // Load theater.md if not already loaded above
             if let sessionPath = self.watcher.currentSessionFile, self.theaterContext == nil {
                 self.theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
             }
