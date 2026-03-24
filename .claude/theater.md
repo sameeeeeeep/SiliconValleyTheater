@@ -136,6 +136,114 @@ Moira: ALTERNATIVE? I have never been an alternative in my LIFE. I am the first 
 David: The developer said he's adding their voice samples next. We just happened to have WAV files already.
 Moira: Because I am a professional. I always have my materials prepared. Unlike some people in this codebase.
 
+### Filler 9
+<!-- Tags: git, commit, push, branch, merge -->
+David: I just committed without reading the diff. I feel alive and terrified at the same time.
+Moira: David. That is the exact energy your father brought to signing the Rose Video tax returns.
+David: And we know how THAT turned out. Okay I'm checking the diff now.
+Moira: When I committed to Sunrise Bay, I read every line of every script. Fourteen seasons. Three thousand episodes.
+David: That show did NOT have three thousand episodes.
+Moira: It felt like three thousand. Commitment is exhausting, David. But it prevents catastrophe.
+
+### Filler 10
+<!-- Tags: error, crash, bug, fix, debug -->
+David: We got an error. A real one. Not a warning, not a suggestion. An actual error. In red.
+Moira: Red is a powerful color. It demands attention. Like my Valentino gown at the People's Choice Awards.
+David: This is not a GOWN MOMENT, Moira. The build failed. Something is broken.
+Moira: When my wig fell off during the live taping of episode two hundred, I did not panic. I IMPROVISED.
+David: You told the audience it was a "dramatic reveal." The director nearly had a stroke.
+Moira: And it won us an Emmy nomination. Errors are merely opportunities wearing disguises.
+
+### Filler 11
+<!-- Tags: test, spec, assert, passed, failed, coverage -->
+David: All tests passed. Every single one. I don't trust it.
+Moira: When every review of Sunrise Bay was positive, I knew something was terribly wrong. And I was RIGHT.
+David: What happened?
+Moira: The network cancelled us the following week. Universal approval is the silence before the axe.
+David: So you're saying passing tests means our app is about to be cancelled.
+Moira: I'm saying VIGILANCE, David. Check the edge cases. Trust nothing. Especially unanimous success.
+
+### Filler 12
+<!-- Tags: deploy, production, ship, release -->
+David: We're about to push to production. This is the part where everything either works or we flee the country.
+Moira: Your father and I have fled a country. It is not as glamorous as it sounds.
+David: You fled TO Schitt's Creek. That's not fleeing, that's surrendering.
+Moira: The deploy process reminds me of opening night. Weeks of preparation. Then the curtain rises and you pray.
+David: Except on opening night you had understudies. Production has no understudy.
+Moira: Which is why we test BEFORE shipping. A lesson I wish the Sunrise Bay writers had learned.
+
+### Filler 13
+<!-- Tags: refactor, rename, cleanup, restructure -->
+David: We're refactoring. Which is a fancy word for "admitting past mistakes and hoping no one notices."
+Moira: When I redecorated the motel room, I called it "reimagining the space." Same principle.
+David: You moved one lamp, Moira. One lamp. And declared it a "complete transformation."
+Moira: The lamp was in the WRONG POSITION. Its relocation altered the entire energy of the room.
+David: That's literally what renaming a variable feels like. Same code, new name, everyone pretends it's different.
+Moira: Perception IS reality, David. If the code READS better, it IS better. I will not be argued with on this.
+
+### Filler 14
+<!-- Tags: server, docker, container, port, localhost -->
+David: The server is running on localhost. Which means only WE can see it. It's like a private screening.
+Moira: I once held a private screening of my film "A Little Bit Alexis" for twelve people. Eleven left.
+David: Who was the twelfth?
+Moira: Your father. He fell asleep. But technically he was still IN the screening.
+David: Localhost is like that. The server is running, technically accessible, but nobody is watching.
+Moira: When we deploy, the world watches. And the world is far less forgiving than a sleeping Johnny Rose.
+
+### Filler 15
+<!-- Tags: search, grep, find, glob, pattern -->
+David: I've been searching this codebase for twenty minutes and I cannot find where this function is defined.
+Moira: When I lost my favorite wig in the move from our mansion, I searched for MONTHS. It was in Alexis's suitcase.
+David: Why was it in Alexis's suitcase?
+Moira: She thought it was a "fun hat." I did not speak to her for two weeks.
+David: Okay well this function isn't hiding in anyone's suitcase. It might just not exist.
+Moira: The most devastating search result: nothing. I know that feeling intimately.
+
+### Filler 16
+<!-- Tags: coding, function, class, method, variable, import -->
+David: Someone named this function "doStuff." Just "doStuff." That's the whole name. That's all the documentation.
+Moira: When Sunrise Bay hired a new writer who described every scene as "stuff happens," I had him removed.
+David: You can't REMOVE a function. Well you can, but then other things break.
+Moira: In season nine, they removed my character's sister. Twenty-three plotlines collapsed. Same principle.
+David: So we rename it. Something descriptive. Something that explains what it DOES.
+Moira: "performCriticalOperationWithGravitas." There. Named.
+
+### Filler 17
+<!-- Tags: api, endpoint, request, response, http -->
+David: The API is returning a 500 error. Which is the server's way of saying "I give up."
+Moira: I once received a standing ovation that lasted so long the theater lights gave up. They just... turned off.
+David: That's not the same thing. A 500 error means something is WRONG.
+Moira: The lights turning off was ALSO wrong. My ovation deserved illumination.
+David: We need to check the logs. The server is telling us what broke, we just have to listen.
+Moira: Listening. The one skill every Rose family member lacks. Except me. I listen selectively, which is superior.
+
+### Filler 18
+<!-- Tags: config, env, yaml, json, settings -->
+David: The config file has seventeen settings and I understand maybe four of them.
+Moira: When we moved into the motel, the room had a thermostat with twelve settings. I used "off" and "maximum."
+David: That explains why our room was either freezing or a sauna. No middle ground.
+Moira: Middle ground is for people without convictions. I set things to their FULL POTENTIAL or not at all.
+David: That's actually how the LLM temperature setting works. Zero is robotic. One is unhinged.
+Moira: I am a one. Your father is a zero. The marriage works because of the contrast.
+
+### Filler 19
+<!-- Tags: performance, slow, fast, latency, speed, optimize -->
+David: The response time went from four seconds to half a second. I feel like we just upgraded from dial-up.
+Moira: When I transitioned from regional theater to network television, the pace was JARRING. But I adapted.
+David: You cried in your dressing room for two hours on the first day. Alexis told me.
+Moira: I was PREPARING. Method acting requires emotional excavation.
+David: Well the app is fast now. No more awkward silences between lines.
+Moira: Silence between lines is only acceptable when it's DRAMATIC. Technical silence is simply failure.
+
+### Filler 20
+<!-- Tags: documentation, docs, readme, comment -->
+David: There's no documentation. None. The code just exists, unexplained, like a crop circle.
+Moira: When I arrived on the set of Sunrise Bay, there were no character notes. I INVENTED Vivian Blake from nothing.
+David: And look how that turned out. Fourteen seasons of a character whose motivations nobody understood.
+Moira: The MYSTERY was the appeal, David. Not every character needs a README.
+David: Code does though. Code absolutely needs a README.
+Moira: Then write one. But make it compelling. No one reads documentation that sounds like a legal disclaimer.
+
 ## Term Explainers
 
 ### TheaterEngine
