@@ -328,6 +328,9 @@ final class TheaterEngine {
         if let theme = ThemeStore.shared.allThemes().first(where: { $0.id == themeId }) {
             config.applyTheme(theme)
         }
+
+        // Re-seed filler pool with theater.md content now that it's loaded
+        fillerPool.seed(themeId: themeId, theaterContext: theaterContext)
         debugLog("[Theater] Selected room: \(sessionPath.suffix(40)) with theme \(themeId)")
     }
 
@@ -434,6 +437,11 @@ final class TheaterEngine {
         // Lazy-load theater context on first event if not loaded yet
         if theaterContext == nil, let sessionPath = watcher.currentSessionFile {
             theaterContext = TheaterContext.load(fromSessionPath: sessionPath)
+            // Re-seed filler pool now that theater.md is available
+            if theaterContext != nil {
+                fillerPool.seed(themeId: config.activeThemeId, theaterContext: theaterContext)
+                debugLog("[Theater] Re-seeded filler pool with theater.md content")
+            }
         }
 
         // Capture user messages for the "Richard" tile
