@@ -312,13 +312,139 @@ final class DialogueGenerator: Sendable {
     func generate(events: [SessionEvent], config: TheaterConfig, activeTheme: CharacterTheme? = nil, theaterContext: TheaterContext? = nil) async throws -> [DialogueLine] {
         guard !events.isEmpty else { return [] }
 
+        // First try: build ELI5 dialogue purely from the event summary (no LLM).
+        // Claude's assistant text already explains what happened — we just reformat it.
+        let summary = EventSummarizer.summarize(events: events)
+        let c0 = config.characters[0]
+        let c1 = config.characters.count > 1 ? config.characters[1] : config.characters[0]
+        let userName = activeTheme?.userCharacterName ?? "Richard"
+        let templateLines = buildTemplateDialogue(from: summary, c0: c0, c1: c1, userName: userName)
+
+        if templateLines.count >= 3 {
+            // Template produced enough ELI5 content — use it directly, skip LLM
+            debugLog("[Generator] Using template dialogue (\(templateLines.count) lines, no LLM)")
+            for line in templateLines {
+                let name = config.characters[min(line.characterIndex, config.characters.count - 1)].name
+                debugLog("[Generator]   \(name): \(line.text.prefix(60))")
+            }
+            return templateLines
+        }
+
+        // Fallback: not enough template content — use LLM
         let prompt = buildPrompt(events: events, config: config, theme: activeTheme, theaterContext: theaterContext)
+        debugLog("[Generator] Template insufficient (\(templateLines.count) lines), using LLM")
         debugLog("[Generator] Prompt length: \(prompt.count) chars")
         debugLog("[Generator] === FULL PROMPT ===\n\(prompt)\n=== END PROMPT ===")
         let response = try await client.generate(prompt: prompt, maxTokens: 350)
         debugLog("[Generator] Raw response: \(response.prefix(400))")
         let names = config.characters.map(\.name)
         return DialogueParser.parse(response, names: names)
+    }
+
+    /// Build ELI5 dialogue directly from the event summary — no LLM needed.
+    /// Reformats Claude's actual explanations into a character back-and-forth.
+    /// Returns 3-6 lines if there's enough content, or empty if summary is too thin.
+    private func buildTemplateDialogue(from summary: String, c0: CharacterConfig, c1: CharacterConfig, userName: String) -> [DialogueLine] {
+        let lines = summary.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        var dialogue: [DialogueLine] = []
+        var turn = 0 // alternates 0, 1, 0, 1...
+
+        // Extract pieces
+        var userAsk: String?
+        var explanations: [String] = []
+        var changes: [String] = []
+        var outcome: String?
+
+        for line in lines {
+            if line.hasPrefix("USER:") {
+                let text = String(line.dropFirst(5).trimmingCharacters(in: .whitespaces))
+                if !Self.isMetaConversation(text) && text.count > 10 {
+                    userAsk = String(text.prefix(80))
+                }
+            } else if line.hasPrefix("ASSISTANT:") {
+                let text = String(line.dropFirst(10).trimmingCharacters(in: .whitespaces))
+                if Self.isTechnicalExplanation(text) && text.count > 30 {
+                    explanations.append(String(text.prefix(150)))
+                }
+            } else if line.hasPrefix("CHANGED:") {
+                changes.append(String(line.dropFirst(8).trimmingCharacters(in: .whitespaces).prefix(80)))
+            } else if line.hasPrefix("FAILED:") {
+                outcome = "failed: " + String(line.dropFirst(7).trimmingCharacters(in: .whitespaces).prefix(60))
+            } else if line.hasPrefix("TESTS PASSED") {
+                outcome = "tests passed"
+            } else if line.hasPrefix("BUILD SUCCEEDED") {
+                outcome = "build succeeded"
+            } else if line.hasPrefix("PLAN:") {
+                let plan = String(line.dropFirst(5).trimmingCharacters(in: .whitespaces).prefix(100))
+                explanations.append("The plan is: \(plan)")
+            }
+        }
+
+        // Line 1: What the user asked (if available)
+        if let ask = userAsk {
+            dialogue.append(DialogueLine(
+                characterIndex: turn % 2,
+                text: "\(userName) wants us to \(ask.lowercased().trimmingCharacters(in: .punctuationCharacters))."
+            ))
+            turn += 1
+        }
+
+        // Line 2-3: The explanation (the ELI5 core)
+        for explanation in explanations.prefix(2) {
+            // Split long explanations into two shorter lines
+            if explanation.count > 80, let splitPoint = findSplitPoint(in: explanation) {
+                let part1 = String(explanation.prefix(splitPoint)).trimmingCharacters(in: .whitespaces)
+                let part2 = String(explanation.dropFirst(splitPoint)).trimmingCharacters(in: .whitespaces)
+                dialogue.append(DialogueLine(characterIndex: turn % 2, text: part1))
+                turn += 1
+                if !part2.isEmpty {
+                    dialogue.append(DialogueLine(characterIndex: turn % 2, text: part2.first?.isUppercase == true ? part2 : part2.prefix(1).uppercased() + part2.dropFirst()))
+                    turn += 1
+                }
+            } else {
+                dialogue.append(DialogueLine(characterIndex: turn % 2, text: explanation))
+                turn += 1
+            }
+        }
+
+        // Line 4: What changed
+        if let change = changes.first, dialogue.count < 6 {
+            dialogue.append(DialogueLine(
+                characterIndex: turn % 2,
+                text: "We changed \(change)."
+            ))
+            turn += 1
+        }
+
+        // Line 5-6: Outcome
+        if let result = outcome, dialogue.count < 6 {
+            switch result {
+            case "tests passed":
+                dialogue.append(DialogueLine(characterIndex: turn % 2, text: "Tests passed. All of them."))
+            case "build succeeded":
+                dialogue.append(DialogueLine(characterIndex: turn % 2, text: "Build went through. No errors."))
+            default:
+                if result.hasPrefix("failed") {
+                    dialogue.append(DialogueLine(characterIndex: turn % 2, text: result.prefix(1).uppercased() + result.dropFirst() + "."))
+                }
+            }
+        }
+
+        return dialogue
+    }
+
+    /// Find a good split point in a long string (period, comma, dash, or "but"/"and"/"so").
+    private func findSplitPoint(in text: String) -> Int? {
+        let midpoint = text.count / 2
+        let searchRange = max(0, midpoint - 20)...min(text.count - 1, midpoint + 20)
+
+        // Prefer splitting at sentence connectors
+        for separator in [". ", " but ", " — ", ", ", " and ", " so "] {
+            if let range = text.range(of: separator, range: text.index(text.startIndex, offsetBy: searchRange.lowerBound)..<text.index(text.startIndex, offsetBy: min(searchRange.upperBound, text.count))) {
+                return text.distance(from: text.startIndex, to: range.upperBound)
+            }
+        }
+        return nil
     }
 
     /// Generate filler banter — contextual to recent events when available.
