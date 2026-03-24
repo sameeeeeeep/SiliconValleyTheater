@@ -120,11 +120,23 @@ final class DynamicFillerPool {
             }
         }
 
-        // No context match — pick any voice-cached set
-        if let idx = readyPool.firstIndex(where: { $0.isVoiceCached }) {
+        // No context match — only pick NEUTRAL fillers (not situation-specific ones)
+        // Situation-specific fillers (build-fail, test-fail, merge conflict) sound wrong
+        // when played without matching context.
+        let situationalTags: Set<String> = [
+            "build-fail", "build-success", "test-fail", "test-pass",
+            "merge", "conflict", "deploy", "error", "failed",
+            "test-failed", "compile-error", "spec-fail",
+        ]
+        let neutralIdx = readyPool.firstIndex(where: { set in
+            // A set is neutral if NONE of its tags are situational
+            set.tags.intersection(situationalTags).isEmpty
+        })
+        if let idx = neutralIdx {
             return readyPool.remove(at: idx)
         }
-        return readyPool.removeFirst()
+        // If ALL remaining fillers are situational, return nothing rather than play the wrong one
+        return nil
     }
 
     /// Extract context tags from event detail strings.
