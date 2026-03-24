@@ -108,6 +108,7 @@ final class TheaterEngine {
     private var voiceCache: [String: Data] = [:]       // text+voice hash → WAV data (persists in memory)
     private let fillerPool = DynamicFillerPool()       // Dynamic filler pool with consume-and-replenish
     private(set) var theaterContext: TheaterContext?    // Project-specific context from .claude/theater.md
+    private var lastSpokenLines: [DialogueLine] = []   // Last generated dialogue — used to pick follow-up fillers
 
     // MARK: - Init
 
@@ -495,7 +496,22 @@ final class TheaterEngine {
             let allTerms = eventsForTermDetect.map { $0.detail }
             if let explainerSet = self.fillerPool.consumeTermExplainer(forTerms: allTerms) {
                 debugLog("[Theater] Playing term-triggered explainer filler...")
-                await self.playLines(explainerSet.lines)
+                let explainerLines = explainerSet.lines.map { DialogueLine(characterIndex: $0.characterIndex, text: $0.text, isFiller: true) }
+                await self.playLines(explainerLines)
+            }
+
+            // Play a context-matched filler as follow-up to the generated dialogue.
+            // Extract tags from WHAT WAS JUST SPOKEN, not from raw events —
+            // so the filler follows naturally from the conversation the audience just heard.
+            let spokenText = self.lastSpokenLines.map(\.text)
+            if !spokenText.isEmpty {
+                if let followUp = self.fillerPool.consumeNext(contextHints: spokenText) {
+                    debugLog("[Theater] Playing follow-up filler (matched from spoken dialogue)...")
+                    let fillerLines = followUp.lines.map { DialogueLine(characterIndex: $0.characterIndex, text: $0.text, isFiller: true) }
+                    // Small pause between main dialogue and filler for natural pacing
+                    try? await Task.sleep(for: .seconds(1.5))
+                    await self.playLines(fillerLines)
+                }
             }
 
             // Detect novel terms not covered by existing explainers — generate in background
@@ -893,6 +909,9 @@ final class TheaterEngine {
             phase = isRunning ? .watching : .idle
             return
         }
+
+        // Save for follow-up filler matching (tags extracted from what was just said)
+        lastSpokenLines = lines
 
         for line in lines {
             let idx = min(line.characterIndex, config.characters.count - 1)
